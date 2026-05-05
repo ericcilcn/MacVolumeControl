@@ -1,0 +1,139 @@
+import AppKit
+import SwiftUI
+
+class CustomOSDWindow {
+    private var window: NSWindow?
+    private var hideTimer: Timer?
+
+    func show(volume: Int, maxVolume: Int, on displayID: CGDirectDisplayID) {
+        hideTimer?.invalidate()
+
+        let percentage = maxVolume > 0 ? Double(volume) / Double(maxVolume) : 0.0
+        let deviceName = getDeviceName(for: displayID)
+
+        if window == nil {
+            let osdWindow = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 320, height: 70),
+                styleMask: [.borderless, .fullSizeContentView],
+                backing: .buffered,
+                defer: false
+            )
+            osdWindow.isOpaque = false
+            osdWindow.backgroundColor = .clear
+            osdWindow.level = .statusBar
+            osdWindow.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
+            osdWindow.hasShadow = true
+
+            // 毛玻璃背景 - 更高透明度
+            let visualEffectView = NSVisualEffectView(frame: osdWindow.contentView!.bounds)
+            visualEffectView.autoresizingMask = [.width, .height]
+            visualEffectView.material = .hudWindow
+            visualEffectView.state = .active
+            visualEffectView.blendingMode = .behindWindow
+            visualEffectView.wantsLayer = true
+            visualEffectView.layer?.cornerRadius = 16
+            visualEffectView.layer?.masksToBounds = true
+            visualEffectView.alphaValue = 0.85  // 增加透明度
+
+            osdWindow.contentView?.addSubview(visualEffectView)
+
+            let hostingView = NSHostingView(rootView: CustomOSDView(percentage: percentage, deviceName: deviceName))
+            hostingView.frame = osdWindow.contentView!.bounds
+            hostingView.autoresizingMask = [.width, .height]
+            osdWindow.contentView?.addSubview(hostingView)
+
+            window = osdWindow
+        } else {
+            if let hostingView = window?.contentView?.subviews.last as? NSHostingView<CustomOSDView> {
+                hostingView.rootView = CustomOSDView(percentage: percentage, deviceName: deviceName)
+            }
+        }
+
+        positionWindow(on: displayID)
+        window?.orderFrontRegardless()
+
+        hideTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: false) { [weak self] _ in
+            self?.window?.orderOut(nil)
+        }
+    }
+
+    private func positionWindow(on displayID: CGDirectDisplayID) {
+        guard let window = window else { return }
+        let bounds = CGDisplayBounds(displayID)
+
+        // 固定在右上角
+        let x = bounds.maxX - window.frame.width - 40
+        let y = bounds.maxY - window.frame.height - 40
+        window.setFrameOrigin(NSPoint(x: x, y: y))
+    }
+
+    private func getDeviceName(for displayID: CGDirectDisplayID) -> String {
+        if displayID == 0 {
+            // 获取真实音频设备名称
+            return SystemAudioManager.shared.getDeviceName()
+        }
+        // 获取显示器名称
+        guard let info = CoreDisplay_DisplayCreateInfoDictionary(displayID)?.takeRetainedValue() as? [String: Any],
+              let names = info["DisplayProductName"] as? [String: String],
+              let name = names["zh_CN"] ?? names["en_US"] ?? names.values.first else {
+            return "外接显示器"
+        }
+        return name
+    }
+}
+
+private func CoreDisplay_DisplayCreateInfoDictionary(_ displayID: CGDirectDisplayID) -> Unmanaged<CFDictionary>? {
+    typealias CreateInfoDictionary = @convention(c) (CGDirectDisplayID) -> Unmanaged<CFDictionary>?
+    guard let bundle = CFBundleGetBundleWithIdentifier("com.apple.CoreDisplay" as CFString),
+          let funcPointer = CFBundleGetFunctionPointerForName(bundle, "CoreDisplay_DisplayCreateInfoDictionary" as CFString) else {
+        return nil
+    }
+    let function = unsafeBitCast(funcPointer, to: CreateInfoDictionary.self)
+    return function(displayID)
+}
+
+struct CustomOSDView: View {
+    let percentage: Double
+    let deviceName: String
+
+    var body: some View {
+        VStack(spacing: 12) {
+            // 设备名称
+            Text(deviceName)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(.white)
+                .padding(.top, 8)
+
+            // 音量控制条
+            HStack(spacing: 12) {
+                // 左侧静音图标
+                Image(systemName: percentage < 0.01 ? "speaker.slash.fill" : "speaker.fill")
+                    .font(.system(size: 18))
+                    .foregroundColor(.white)
+                    .frame(width: 24)
+
+                // 进度条
+                GeometryReader { geometry in
+                    ZStack(alignment: .leading) {
+                        Capsule()
+                            .fill(Color.white.opacity(0.3))
+                            .frame(height: 6)
+
+                        Capsule()
+                            .fill(Color.white)
+                            .frame(width: geometry.size.width * percentage, height: 6)
+                    }
+                }
+                .frame(height: 6)
+
+                // 右侧高音量图标
+                Image(systemName: "speaker.wave.3.fill")
+                    .font(.system(size: 18))
+                    .foregroundColor(.white)
+                    .frame(width: 24)
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 8)
+        }
+    }
+}

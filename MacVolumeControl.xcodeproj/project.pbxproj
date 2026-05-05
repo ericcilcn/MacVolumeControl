@@ -6,13 +6,37 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		F505215A2FA793EA00257840 /* IOKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F50521592FA793EA00257840 /* IOKit.framework */; };
+		F505215C2FA793F400257840 /* AppKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F505215B2FA793F400257840 /* AppKit.framework */; platformFilters = (macos, ); };
+		F505215E2FA7940B00257840 /* ServiceManagement.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F505215D2FA7940B00257840 /* ServiceManagement.framework */; platformFilters = (macos, ); };
+		F50521602FA7950000257840 /* CoreAudio.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F505215F2FA7950000257840 /* CoreAudio.framework */; platformFilters = (macos, ); };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		F50521292FA790F000257840 /* MacVolumeControl.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MacVolumeControl.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		F50521592FA793EA00257840 /* IOKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = IOKit.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.4.sdk/System/Library/Frameworks/IOKit.framework; sourceTree = DEVELOPER_DIR; };
+		F505215B2FA793F400257840 /* AppKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AppKit.framework; path = System/Library/Frameworks/AppKit.framework; sourceTree = SDKROOT; };
+		F505215D2FA7940B00257840 /* ServiceManagement.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ServiceManagement.framework; path = System/Library/Frameworks/ServiceManagement.framework; sourceTree = SDKROOT; };
+		F505215F2FA7950000257840 /* CoreAudio.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreAudio.framework; path = System/Library/Frameworks/CoreAudio.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		F50521672FA7A06D00257840 /* Exceptions for "MacVolumeControl" folder in "MacVolumeControl" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Resources/Info.plist,
+			);
+			target = F50521282FA790F000257840 /* MacVolumeControl */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		F505212B2FA790F000257840 /* MacVolumeControl */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				F50521672FA7A06D00257840 /* Exceptions for "MacVolumeControl" folder in "MacVolumeControl" target */,
+			);
 			path = MacVolumeControl;
 			sourceTree = "<group>";
 		};
@@ -23,6 +47,10 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				F505215E2FA7940B00257840 /* ServiceManagement.framework in Frameworks */,
+				F505215A2FA793EA00257840 /* IOKit.framework in Frameworks */,
+				F505215C2FA793F400257840 /* AppKit.framework in Frameworks */,
+				F50521602FA7950000257840 /* CoreAudio.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -33,6 +61,7 @@
 			isa = PBXGroup;
 			children = (
 				F505212B2FA790F000257840 /* MacVolumeControl */,
+				F50521582FA793EA00257840 /* Frameworks */,
 				F505212A2FA790F000257840 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -43,6 +72,17 @@
 				F50521292FA790F000257840 /* MacVolumeControl.app */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		F50521582FA793EA00257840 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				F505215F2FA7950000257840 /* CoreAudio.framework */,
+				F505215D2FA7940B00257840 /* ServiceManagement.framework */,
+				F505215B2FA793F400257840 /* AppKit.framework */,
+				F50521592FA793EA00257840 /* IOKit.framework */,
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -246,10 +286,11 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				ENABLE_APP_SANDBOX = YES;
+				ENABLE_APP_SANDBOX = NO;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
-				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "$(SRCROOT)/MacVolumeControl/Resources/Info.plist";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -288,10 +329,10 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				ENABLE_APP_SANDBOX = YES;
+				ENABLE_APP_SANDBOX = NO;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
-				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
