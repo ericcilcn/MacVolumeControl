@@ -46,6 +46,21 @@ open MacVolumeControl.xcodeproj
 
 在 Xcode 中按 `Cmd+R` 运行
 
+### 生成安装 DMG
+
+如果你要发布带“拖入 Applications 安装”界面的 DMG：
+
+1. 先在 Xcode 中构建 Release 版本，确保生成 `MacVolumeControl.app`
+2. 脚本会自动使用 `scripts/dmg-assets/background.png` 作为安装背景图
+3. 运行打包脚本：
+
+```bash
+chmod +x scripts/create_dmg.sh
+./scripts/create_dmg.sh
+```
+
+默认会从 `build/Release/MacVolumeControl.app` 读取应用，并生成 `MacVolumeControl.dmg`
+
 ## 🎮 使用方法
 
 ### 基本操作

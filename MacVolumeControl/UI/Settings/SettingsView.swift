@@ -281,7 +281,7 @@ struct SettingsView: View {
                 .font(.title)
                 .fontWeight(.bold)
 
-            Text("Version 1.0.0")
+            Text("Version 1.0.1")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
 
@@ -362,7 +362,6 @@ struct SettingsView: View {
     }
 }
 
-// 自定义标签按钮
 struct TabButton: View {
     let title: String
     let icon: String
@@ -388,3 +387,4 @@ struct TabButton: View {
         .buttonStyle(.plain)
     }
 }
+

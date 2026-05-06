@@ -2,15 +2,18 @@ import AppKit
 import SwiftUI
 import Combine
 
-class StatusBarController: ObservableObject {
+class StatusBarController: NSObject, ObservableObject, NSWindowDelegate {
     private var statusItem: NSStatusItem?
     private var eventMonitor: EventMonitor?
     private var eventInterceptor: EventInterceptor?
     private var settingsWindow: NSWindow?
-    private var lastClickTime: TimeInterval = 0
-    private var clickCount: Int = 0
+    private var pendingSingleClickWorkItem: DispatchWorkItem?
+    private var lastDisplayedVolume: Int?
+    private var lastDisplayedMaxVolume: Int?
+    private var lastDisplayedMutedState: Bool?
 
-    init() {
+    override init() {
+        super.init()
         setupStatusItem()
         setupEventMonitor()
         setupEventInterceptor()
@@ -199,43 +202,62 @@ class StatusBarController: ObservableObject {
         guard let event = NSApp.currentEvent else { return }
 
         if event.type == .rightMouseUp {
+            pendingSingleClickWorkItem?.cancel()
+            pendingSingleClickWorkItem = nil
             showMenu()
-        } else if event.type == .leftMouseUp {
-            // 检测双击
-            let now = ProcessInfo.processInfo.systemUptime
-            let timeSinceLastClick = now - lastClickTime
-
-            if timeSinceLastClick < 0.3 && clickCount == 1 {
-                // 双击：静音/取消静音（如果启用）
-                clickCount = 0
-                if DisplayManager.shared.doubleClickToMute {
-                    DisplayManager.shared.toggleMute()
-                    updateIcon()
-                } else {
-                    showSettings()
-                }
-            } else {
-                // 单击：显示设置
-                clickCount = 1
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-                    if self?.clickCount == 1 {
-                        self?.showSettings()
-                        self?.clickCount = 0
-                    }
-                }
-            }
-
-            lastClickTime = now
+            return
         }
+
+        guard event.type == .leftMouseUp else { return }
+
+        if event.clickCount >= 2 {
+            pendingSingleClickWorkItem?.cancel()
+            pendingSingleClickWorkItem = nil
+
+            if DisplayManager.shared.doubleClickToMute {
+                DisplayManager.shared.toggleMute()
+                updateIcon()
+            } else {
+                showSettings()
+            }
+            return
+        }
+
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.showSettings()
+            self?.pendingSingleClickWorkItem = nil
+        }
+
+        pendingSingleClickWorkItem?.cancel()
+        pendingSingleClickWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + NSEvent.doubleClickInterval, execute: workItem)
     }
 
     @objc private func displayChanged() {
-        print("🔔 StatusBarController received display change notification")
-        updateIcon()
+        updateIconIfNeeded()
     }
 
     func updateIcon() {
+        updateIcon(force: true)
+    }
+
+    private func updateIconIfNeeded() {
+        updateIcon(force: false)
+    }
+
+    private func updateIcon(force: Bool) {
         guard let display = DisplayManager.shared.activeDisplay else { return }
+
+        if !force,
+           lastDisplayedVolume == display.currentVolume,
+           lastDisplayedMaxVolume == display.maxVolume,
+           lastDisplayedMutedState == display.isMuted {
+            return
+        }
+
+        lastDisplayedVolume = display.currentVolume
+        lastDisplayedMaxVolume = display.maxVolume
+        lastDisplayedMutedState = display.isMuted
 
         let icon = VolumeIconGenerator.generateIcon(
             volume: display.currentVolume,
@@ -271,21 +293,32 @@ class StatusBarController: ObservableObject {
     }
 
     @objc private func showSettings() {
-        if settingsWindow == nil {
-            let contentView = SettingsView()
-            let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 480, height: 380),
-                styleMask: [.titled, .closable, .miniaturizable],
-                backing: .buffered,
-                defer: false
-            )
-            window.title = "偏好设置"
-            window.contentView = NSHostingView(rootView: contentView)
-            window.center()
-            settingsWindow = window
-        }
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
 
-        settingsWindow?.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+            if self.settingsWindow == nil {
+                let contentView = SettingsView()
+                let window = NSWindow(
+                    contentRect: NSRect(x: 0, y: 0, width: 480, height: 380),
+                    styleMask: [.titled, .closable, .miniaturizable],
+                    backing: .buffered,
+                    defer: false
+                )
+                window.title = "偏好设置"
+                window.delegate = self
+                window.isReleasedWhenClosed = false
+                window.contentView = NSHostingView(rootView: contentView)
+                window.center()
+                self.settingsWindow = window
+            }
+
+            self.settingsWindow?.makeKeyAndOrderFront(nil)
+            self.settingsWindow?.orderFrontRegardless()
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        settingsWindow?.orderOut(nil)
     }
 }

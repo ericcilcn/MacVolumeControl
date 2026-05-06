@@ -501,8 +501,10 @@ class DisplayManager: ObservableObject {
     @objc private func systemVolumeChanged() {
         guard let active = activeDisplay, !active.isExternal else { return }
         if let volume = SystemAudioManager.shared.getVolume() {
+            let newVolume = Int(volume * 100)
             if let index = displays.firstIndex(where: { $0.id == active.id }) {
-                displays[index].currentVolume = Int(volume * 100)
+                guard displays[index].currentVolume != newVolume else { return }
+                displays[index].currentVolume = newVolume
                 activeDisplay = displays[index]
                 NotificationCenter.default.post(name: NSNotification.Name("DisplayChanged"), object: nil)
             }
