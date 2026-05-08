@@ -4,6 +4,7 @@ import SwiftUI
 class CustomOSDWindow {
     private var window: NSWindow?
     private var hideTimer: Timer?
+    private var isShowing = false
 
     func show(volume: Int, maxVolume: Int, on displayID: CGDirectDisplayID) {
         hideTimer?.invalidate()
@@ -24,7 +25,6 @@ class CustomOSDWindow {
             osdWindow.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
             osdWindow.hasShadow = true
 
-            // 毛玻璃背景 - 更高透明度
             let visualEffectView = NSVisualEffectView(frame: osdWindow.contentView!.bounds)
             visualEffectView.autoresizingMask = [.width, .height]
             visualEffectView.material = .hudWindow
@@ -33,7 +33,7 @@ class CustomOSDWindow {
             visualEffectView.wantsLayer = true
             visualEffectView.layer?.cornerRadius = 16
             visualEffectView.layer?.masksToBounds = true
-            visualEffectView.alphaValue = 0.85  // 增加透明度
+            visualEffectView.alphaValue = 0.85
 
             osdWindow.contentView?.addSubview(visualEffectView)
 
@@ -50,10 +50,27 @@ class CustomOSDWindow {
         }
 
         positionWindow(on: displayID)
-        window?.orderFrontRegardless()
 
-        hideTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: false) { [weak self] _ in
-            self?.window?.orderOut(nil)
+        if !isShowing {
+            isShowing = true
+            window?.alphaValue = 0
+            window?.orderFrontRegardless()
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.12
+                window?.animator().alphaValue = 1
+            }
+        }
+
+        hideTimer?.invalidate()
+        hideTimer = Timer.scheduledTimer(withTimeInterval: 1.2, repeats: false) { [weak self] _ in
+            guard let self = self else { return }
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.35
+                self.window?.animator().alphaValue = 0
+            } completionHandler: {
+                self.window?.orderOut(nil)
+                self.isShowing = false
+            }
         }
     }
 
@@ -61,7 +78,6 @@ class CustomOSDWindow {
         guard let window = window else { return }
         let bounds = CGDisplayBounds(displayID)
 
-        // 固定在右上角
         let x = bounds.maxX - window.frame.width - 40
         let y = bounds.maxY - window.frame.height - 40
         window.setFrameOrigin(NSPoint(x: x, y: y))
@@ -69,10 +85,8 @@ class CustomOSDWindow {
 
     private func getDeviceName(for displayID: CGDirectDisplayID) -> String {
         if displayID == 0 {
-            // 获取真实音频设备名称
             return SystemAudioManager.shared.getDeviceName()
         }
-        // 获取显示器名称
         guard let info = CoreDisplay_DisplayCreateInfoDictionary(displayID)?.takeRetainedValue() as? [String: Any],
               let names = info["DisplayProductName"] as? [String: String],
               let name = names["zh_CN"] ?? names["en_US"] ?? names.values.first else {
@@ -98,21 +112,17 @@ struct CustomOSDView: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            // 设备名称
             Text(deviceName)
                 .font(.system(size: 14, weight: .medium))
                 .foregroundColor(.white)
                 .padding(.top, 8)
 
-            // 音量控制条
             HStack(spacing: 12) {
-                // 左侧静音图标
                 Image(systemName: percentage < 0.01 ? "speaker.slash.fill" : "speaker.fill")
                     .font(.system(size: 18))
                     .foregroundColor(.white)
                     .frame(width: 24)
 
-                // 进度条
                 GeometryReader { geometry in
                     ZStack(alignment: .leading) {
                         Capsule()
@@ -126,7 +136,6 @@ struct CustomOSDView: View {
                 }
                 .frame(height: 6)
 
-                // 右侧高音量图标
                 Image(systemName: "speaker.wave.3.fill")
                     .font(.system(size: 18))
                     .foregroundColor(.white)

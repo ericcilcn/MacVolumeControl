@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct MacVolumeControlApp: App {
+struct RolumeApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     var body: some Scene {

@@ -40,7 +40,9 @@ func ddcRead(framebuffer: io_service_t, command: UInt8, current: inout UInt32, m
     let result = IOI2CSendRequest(framebuffer, 0, &request)
 
     guard result == kIOReturnSuccess else {
+        #if DEBUG
         print("DDC Read failed: \(result)")
+        #endif
         return false
     }
 
@@ -49,7 +51,9 @@ func ddcRead(framebuffer: io_service_t, command: UInt8, current: inout UInt32, m
     if replyBuffer.count >= 10 {
         max = UInt32(replyBuffer[6]) << 8 | UInt32(replyBuffer[7])
         current = UInt32(replyBuffer[8]) << 8 | UInt32(replyBuffer[9])
+        #if DEBUG
         print("DDC Read success: current=\(current), max=\(max)")
+        #endif
         return true
     }
 
@@ -91,10 +95,14 @@ func ddcWrite(framebuffer: io_service_t, command: UInt8, value: UInt32) -> Bool 
     let result = IOI2CSendRequest(framebuffer, 0, &request)
 
     if result == kIOReturnSuccess {
+        #if DEBUG
         print("DDC Write success: value=\(value)")
+        #endif
         return true
     } else {
+        #if DEBUG
         print("DDC Write failed: \(result)")
+        #endif
         return false
     }
 }

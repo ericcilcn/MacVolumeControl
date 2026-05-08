@@ -4,6 +4,7 @@ import CoreAudio
 class SystemAudioManager {
     static let shared = SystemAudioManager()
     private var currentDeviceID: AudioDeviceID?
+    private var volumeListener: AudioObjectPropertyListenerProc?
 
     private init() {
         diagnose()
@@ -13,7 +14,9 @@ class SystemAudioManager {
     /// 启动时诊断音频设备能力
     private func diagnose() {
         guard let deviceID = getDefaultOutputDevice() else {
+            #if DEBUG
             print("🔊 Audio: No default output device")
+            #endif
             return
         }
 
@@ -27,7 +30,9 @@ class SystemAudioManager {
         var name: CFString = "" as CFString
         let namePtr = withUnsafeMutablePointer(to: &name) { $0 }
         AudioObjectGetPropertyData(deviceID, &nameAddr, 0, nil, &nameSize, namePtr)
+        #if DEBUG
         print("🔊 Audio output: \(name) (deviceID=\(deviceID))")
+        #endif
 
         // 检查各通道的音量支持
         for ch: UInt32 in [0, 1, 2] {
@@ -41,7 +46,9 @@ class SystemAudioManager {
             if has {
                 AudioObjectIsPropertySettable(deviceID, &addr, &settable)
             }
+            #if DEBUG
             print("  Channel \(ch): hasVolume=\(has), settable=\(settable)")
+            #endif
         }
     }
 
@@ -126,7 +133,9 @@ class SystemAudioManager {
             UInt8(transport & 0xFF)
         ]
         let transportString = String(bytes: bytes, encoding: .ascii)
+        #if DEBUG
         print("🔍 Transport type raw: 0x\(String(format: "%08X", transport)), string: \(transportString ?? "nil")")
+        #endif
         return transportString
     }
 
@@ -172,31 +181,28 @@ class SystemAudioManager {
             mElement: channel
         )
 
-        AudioObjectAddPropertyListener(
-            deviceID,
-            &address,
-            { (objectID, numAddresses, addresses, clientData) -> OSStatus in
-                DispatchQueue.main.async {
-                    NotificationCenter.default.post(name: NSNotification.Name("SystemVolumeChanged"), object: nil)
-                }
-                return noErr
-            },
-            nil
-        )
+        let listener: AudioObjectPropertyListenerProc = { _, _, _, _ in
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: NSNotification.Name("SystemVolumeChanged"), object: nil)
+            }
+            return noErr
+        }
+        volumeListener = listener
+        AudioObjectAddPropertyListener(deviceID, &address, listener, nil)
     }
 
     func updateVolumeMonitoring() {
         guard let newDeviceID = getDefaultOutputDevice() else { return }
         guard newDeviceID != currentDeviceID else { return }
 
-        if let oldDeviceID = currentDeviceID {
+        if let oldDeviceID = currentDeviceID, let listener = volumeListener {
             let channel = getVolumeChannel(for: oldDeviceID)
             var address = AudioObjectPropertyAddress(
                 mSelector: kAudioDevicePropertyVolumeScalar,
                 mScope: kAudioDevicePropertyScopeOutput,
                 mElement: channel
             )
-            AudioObjectRemovePropertyListener(oldDeviceID, &address, { (_, _, _, _) in noErr }, nil)
+            AudioObjectRemovePropertyListener(oldDeviceID, &address, listener, nil)
         }
 
         startMonitoringVolume()

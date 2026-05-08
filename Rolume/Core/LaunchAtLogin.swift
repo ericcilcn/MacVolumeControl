@@ -11,7 +11,9 @@ class LaunchAtLogin {
                     try SMAppService.mainApp.unregister()
                 }
             } catch {
+                #if DEBUG
                 print("Failed to \(enabled ? "enable" : "disable") launch at login: \(error)")
+                #endif
             }
         }
     }

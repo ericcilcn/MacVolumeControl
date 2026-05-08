@@ -59,6 +59,7 @@ class DisplayManager: ObservableObject {
         }
         set {
             UserDefaults.standard.set(newValue.rawValue, forKey: "mouseVolumeStep")
+            notifyInterceptorRefresh()
         }
     }
 
@@ -69,6 +70,7 @@ class DisplayManager: ObservableObject {
         }
         set {
             UserDefaults.standard.set(newValue.rawValue, forKey: "trackpadVolumeStep")
+            notifyInterceptorRefresh()
         }
     }
 
@@ -162,21 +164,23 @@ class DisplayManager: ObservableObject {
     var mouseScrollWithModifier: Bool {
         get {
             if UserDefaults.standard.object(forKey: "mouseScrollWithModifier") == nil {
-                return false  // 默认关闭
+                return false
             }
             return UserDefaults.standard.bool(forKey: "mouseScrollWithModifier")
         }
         set {
             UserDefaults.standard.set(newValue, forKey: "mouseScrollWithModifier")
+            notifyInterceptorRefresh()
         }
     }
 
     var mouseDisableSystemScroll: Bool {
         get {
-            return UserDefaults.standard.bool(forKey: "mouseDisableSystemScroll")  // 默认关闭
+            return UserDefaults.standard.bool(forKey: "mouseDisableSystemScroll")
         }
         set {
             UserDefaults.standard.set(newValue, forKey: "mouseDisableSystemScroll")
+            NotificationCenter.default.post(name: NSNotification.Name("ReverseMouseScrollChanged"), object: nil)
         }
     }
 
@@ -208,31 +212,111 @@ class DisplayManager: ObservableObject {
     var trackpadScrollWithModifier: Bool {
         get {
             if UserDefaults.standard.object(forKey: "trackpadScrollWithModifier") == nil {
-                return false  // 默认关闭
+                return false
             }
             return UserDefaults.standard.bool(forKey: "trackpadScrollWithModifier")
         }
         set {
             UserDefaults.standard.set(newValue, forKey: "trackpadScrollWithModifier")
+            notifyInterceptorRefresh()
         }
     }
 
     var trackpadDisableSystemScroll: Bool {
         get {
-            return UserDefaults.standard.bool(forKey: "trackpadDisableSystemScroll")  // 默认关闭
+            return UserDefaults.standard.bool(forKey: "trackpadDisableSystemScroll")
         }
         set {
             UserDefaults.standard.set(newValue, forKey: "trackpadDisableSystemScroll")
+            NotificationCenter.default.post(name: NSNotification.Name("ReverseMouseScrollChanged"), object: nil)
         }
     }
 
-    var selectedModifierKey: ModifierKey {
+    var isEnabled: Bool {
         get {
-            let rawValue = UserDefaults.standard.string(forKey: "selectedModifierKey") ?? ModifierKey.option.rawValue
+            if UserDefaults.standard.object(forKey: "isEnabled") == nil {
+                return true  // 默认启用
+            }
+            return UserDefaults.standard.bool(forKey: "isEnabled")
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: "isEnabled")
+            NotificationCenter.default.post(name: NSNotification.Name("EnabledStateChanged"), object: nil)
+        }
+    }
+
+    var showDockIcon: Bool {
+        get {
+            if UserDefaults.standard.object(forKey: "showDockIcon") == nil {
+                return false  // 默认不显示 Dock 图标
+            }
+            return UserDefaults.standard.bool(forKey: "showDockIcon")
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: "showDockIcon")
+            applyDockIconSetting(newValue)
+        }
+    }
+
+    private func notifyInterceptorRefresh() {
+        NotificationCenter.default.post(name: NSNotification.Name("RefreshInterceptorSettings"), object: nil)
+    }
+
+    private func applyDockIconSetting(_ show: Bool) {
+        if show {
+            NSApp.setActivationPolicy(.regular)
+            NSApp.activate(ignoringOtherApps: false)
+        } else {
+            let visibleWindows = NSApp.windows.filter { $0.isVisible }
+            NSApp.setActivationPolicy(.accessory)
+            DispatchQueue.main.async {
+                for window in visibleWindows {
+                    window.orderFrontRegardless()
+                    window.makeKey()
+                }
+                NSApp.activate(ignoringOtherApps: true)
+            }
+        }
+    }
+
+    var reversalExcludedApps: [String] {
+        get {
+            return UserDefaults.standard.stringArray(forKey: "reversalExcludedApps") ?? []
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: "reversalExcludedApps")
+        }
+    }
+
+    var reverseMouseScroll: Bool {
+        get {
+            return UserDefaults.standard.bool(forKey: "reverseMouseScroll")  // 默认关闭
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: "reverseMouseScroll")
+            NotificationCenter.default.post(name: NSNotification.Name("ReverseMouseScrollChanged"), object: nil)
+        }
+    }
+
+    var mouseModifierKey: ModifierKey {
+        get {
+            let rawValue = UserDefaults.standard.string(forKey: "mouseModifierKey") ?? ModifierKey.option.rawValue
             return ModifierKey(rawValue: rawValue) ?? .option
         }
         set {
-            UserDefaults.standard.set(newValue.rawValue, forKey: "selectedModifierKey")
+            UserDefaults.standard.set(newValue.rawValue, forKey: "mouseModifierKey")
+            notifyInterceptorRefresh()
+        }
+    }
+
+    var trackpadModifierKey: ModifierKey {
+        get {
+            let rawValue = UserDefaults.standard.string(forKey: "trackpadModifierKey") ?? ModifierKey.option.rawValue
+            return ModifierKey(rawValue: rawValue) ?? .option
+        }
+        set {
+            UserDefaults.standard.set(newValue.rawValue, forKey: "trackpadModifierKey")
+            notifyInterceptorRefresh()
         }
     }
 
@@ -249,21 +333,29 @@ class DisplayManager: ObservableObject {
         var displayCount: UInt32 = 0
 
         guard CGGetOnlineDisplayList(maxDisplays, &onlineDisplays, &displayCount) == .success else {
+            #if DEBUG
             print("❌ Failed to get display list")
+            #endif
             return
         }
 
+        #if DEBUG
         print("🔍 Detected \(displayCount) online display(s)")
+        #endif
 
         // 检查当前音频输出是否是显示器音频
         let isDisplayAudio = SystemAudioManager.shared.isCurrentOutputDisplayAudio()
+        #if DEBUG
         print("🔊 Current audio output is display audio: \(isDisplayAudio)")
+        #endif
 
         var hasExternal = false
         for i in 0..<Int(displayCount) {
             let displayID = onlineDisplays[i]
             let isBuiltIn = CGDisplayIsBuiltin(displayID) != 0
+            #if DEBUG
             print("  Display \(i): ID=\(displayID), isBuiltIn=\(isBuiltIn)")
+            #endif
 
             if !isBuiltIn {
                 hasExternal = true
@@ -274,39 +366,53 @@ class DisplayManager: ObservableObject {
                 if let result = DDCManager.shared.readVolume(for: displayID) {
                     display.currentVolume = Int(result.currentValue)
                     display.maxVolume = Int(result.maxValue)
+                    #if DEBUG
                     print("📺 External display: \(name), volume: \(display.currentVolume)/\(display.maxVolume)")
+                    #endif
                 } else {
                     // 尝试从 UserDefaults 加载上次保存的音量
                     display.currentVolume = loadSavedVolume(for: displayID) ?? 50
                     display.maxVolume = 100
+                    #if DEBUG
                     print("📺 External display: \(name), using saved volume: \(display.currentVolume)")
+                    #endif
                 }
 
                 displayList.append(display)
             }
         }
 
+        #if DEBUG
         print("🔍 hasExternal = \(hasExternal)")
+        #endif
 
         // 如果音频输出不是显示器，或者没有外接显示器，使用系统音频控制
         if !isDisplayAudio || !hasExternal {
+            #if DEBUG
             print("🔍 Creating audio output device...")
+            #endif
             let deviceName = SystemAudioManager.shared.getDeviceName()
             var audioDevice = Display(id: 0, name: deviceName, isExternal: false)
             if let volume = SystemAudioManager.shared.getVolume() {
                 audioDevice.currentVolume = Int(volume * 100)
                 audioDevice.maxVolume = 100
+                #if DEBUG
                 print("🔊 Audio output: volume: \(audioDevice.currentVolume)/\(audioDevice.maxVolume)")
+                #endif
             } else {
                 audioDevice.currentVolume = loadSavedVolume(for: 0) ?? 50
                 audioDevice.maxVolume = 100
+                #if DEBUG
                 print("🔊 Audio output: using saved volume: \(audioDevice.currentVolume)")
+                #endif
             }
             displayList.append(audioDevice)
         }
 
         displays = displayList
+        #if DEBUG
         print("✅ Total displays: \(displays.count)")
+        #endif
         updateActiveDisplay()
     }
 
@@ -320,7 +426,9 @@ class DisplayManager: ObservableObject {
         // 如果有音频输出设备（非显示器音频），优先使用它
         if let audioDevice = displays.first(where: { !$0.isExternal }) {
             activeDisplay = audioDevice
+            #if DEBUG
             print("🎯 Active display set to: \(audioDevice.name)")
+            #endif
             return
         }
 
@@ -345,22 +453,30 @@ class DisplayManager: ObservableObject {
 
     func adjustVolume(by delta: Int) {
         guard let active = activeDisplay else {
+            #if DEBUG
             print("⚠️ No active display")
+            #endif
             return
         }
 
         let newVolume = max(0, min(active.maxVolume, active.currentVolume + delta))
         guard newVolume != active.currentVolume else { return }
 
+        #if DEBUG
         print("🎚️ Adjusting volume: \(active.name) from \(active.currentVolume) to \(newVolume)")
+        #endif
 
         var success = false
         if active.isExternal {
             success = DDCManager.shared.setVolume(UInt16(newVolume), for: active.id)
+            #if DEBUG
             print("  DDC result: \(success ? "✅" : "❌")")
+            #endif
         } else {
             success = SystemAudioManager.shared.setVolume(Float(newVolume) / 100.0)
+            #if DEBUG
             print("  CoreAudio result: \(success ? "✅" : "❌")")
+            #endif
         }
 
         if success {
@@ -456,7 +572,9 @@ class DisplayManager: ObservableObject {
             name: NSApplication.didChangeScreenParametersNotification,
             object: nil
         )
+        #if DEBUG
         print("👀 Started monitoring display changes")
+        #endif
 
         // 监听音频输出设备变化
         var address = AudioObjectPropertyAddress(
@@ -478,7 +596,9 @@ class DisplayManager: ObservableObject {
             },
             Unmanaged.passUnretained(self).toOpaque()
         )
+        #if DEBUG
         print("👀 Started monitoring audio device changes")
+        #endif
 
         // 监听系统音量变化
         NotificationCenter.default.addObserver(
@@ -487,15 +607,21 @@ class DisplayManager: ObservableObject {
             name: NSNotification.Name("SystemVolumeChanged"),
             object: nil
         )
+        #if DEBUG
         print("👀 Started monitoring system volume changes")
+        #endif
     }
 
     @objc private func audioDeviceChanged() {
+        #if DEBUG
         print("🔄 Audio output device changed, refreshing...")
+        #endif
         SystemAudioManager.shared.updateVolumeMonitoring()
         refreshDisplays()
         NotificationCenter.default.post(name: NSNotification.Name("DisplayChanged"), object: nil)
+        #if DEBUG
         print("🔄 Refresh complete. Active display: \(activeDisplay?.name ?? "none")")
+        #endif
     }
 
     @objc private func systemVolumeChanged() {
@@ -512,11 +638,15 @@ class DisplayManager: ObservableObject {
     }
 
     @objc private func displaysChanged() {
+        #if DEBUG
         print("🔄 Display configuration changed, refreshing...")
+        #endif
         refreshDisplays()
         // 通知 StatusBarController 更新图标
         NotificationCenter.default.post(name: NSNotification.Name("DisplayChanged"), object: nil)
+        #if DEBUG
         print("🔄 Refresh complete. Active display: \(activeDisplay?.name ?? "none")")
+        #endif
     }
 }
 

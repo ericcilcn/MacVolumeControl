@@ -25,6 +25,50 @@ class StatusBarController: NSObject, ObservableObject, NSWindowDelegate {
             name: NSNotification.Name("DisplayChanged"),
             object: nil
         )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(reverseMouseScrollChanged),
+            name: NSNotification.Name("ReverseMouseScrollChanged"),
+            object: nil
+        )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(enabledStateChanged),
+            name: NSNotification.Name("EnabledStateChanged"),
+            object: nil
+        )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(languageChanged),
+            name: NSNotification.Name("LanguageChanged"),
+            object: nil
+        )
+
+        // 启动时应用启用状态
+        if !DisplayManager.shared.isEnabled {
+            updateIcon()
+        }
+    }
+
+    @objc private func reverseMouseScrollChanged() {
+        setupEventInterceptor()
+    }
+
+    @objc private func languageChanged() {
+        settingsWindow?.title = L10n.preferences
+    }
+
+    @objc private func enabledStateChanged() {
+        updateIcon()
+        if DisplayManager.shared.isEnabled {
+            setupEventInterceptor()
+        } else {
+            eventInterceptor?.stop()
+            eventInterceptor = nil
+        }
     }
 
     private func setupStatusItem() {
@@ -43,15 +87,19 @@ class StatusBarController: NSObject, ObservableObject, NSWindowDelegate {
     private func setupEventMonitor() {
         eventMonitor = EventMonitor(mask: .scrollWheel) { [weak self] event in
             guard let self = self else { return event }
+            guard DisplayManager.shared.isEnabled else { return event }
 
             // 检查是否在 dock 区域或在菜单栏区域
             let isInDockArea = self.isMouseInDockArea()
             let isInMenuBarArea = self.isMouseInMenuBarArea()
 
-            // 检查是否按住了选定的修饰键
-            let selectedKey = DisplayManager.shared.selectedModifierKey
+            // 检测是否是触控板（有滚动阶段）还是鼠标（无阶段）
+            let isTrackpad = event.phase != .init(rawValue: 0) || event.momentumPhase != .init(rawValue: 0)
+
+            // 检查是否按住了选定的修饰键（鼠标和触控板独立设置）
+            let modifierKey = isTrackpad ? DisplayManager.shared.trackpadModifierKey : DisplayManager.shared.mouseModifierKey
             var isModifierPressed = false
-            switch selectedKey {
+            switch modifierKey {
             case .option:
                 isModifierPressed = event.modifierFlags.contains(.option)
             case .command:
@@ -61,9 +109,6 @@ class StatusBarController: NSObject, ObservableObject, NSWindowDelegate {
             case .shift:
                 isModifierPressed = event.modifierFlags.contains(.shift)
             }
-
-            // 检测是否是触控板（有滚动阶段）还是鼠标（无阶段）
-            let isTrackpad = event.phase != .init(rawValue: 0) || event.momentumPhase != .init(rawValue: 0)
 
             // 根据设备类型和设置判断是否应该处理滚轮事件
             var shouldHandle = false
@@ -95,12 +140,13 @@ class StatusBarController: NSObject, ObservableObject, NSWindowDelegate {
             guard shouldHandle else { return event }
 
             let now = ProcessInfo.processInfo.systemUptime
-            // 向上滚（正值）增加音量，向下滚（负值）减小音量
             let delta = event.scrollingDeltaY
 
-            // 检查是否启用了自然滚动，如果启用则需要反转
+            // 自然滚动补偿。如果 CGEvent tap 已经反转了鼠标滚轮（reverseMouseScroll 开启），
+            // 则跳过此补偿，避免双重反转导致方向错误
             let shouldInvert = event.isDirectionInvertedFromDevice
-            let adjustedDelta = shouldInvert ? -delta : delta
+            let cgEventAlreadyReversed = !isTrackpad && DisplayManager.shared.reverseMouseScroll
+            let adjustedDelta = (shouldInvert && !cgEventAlreadyReversed) ? -delta : delta
 
             var volumeChange = 0
 
@@ -133,18 +179,26 @@ class StatusBarController: NSObject, ObservableObject, NSWindowDelegate {
             DisplayManager.shared.adjustVolume(by: volumeChange)
             self.updateIcon()
 
-            return nil
+            // 只有对应设备的"拦截"开启时才吞掉事件
+            let shouldIntercept = isTrackpad ? DisplayManager.shared.trackpadDisableSystemScroll : DisplayManager.shared.mouseDisableSystemScroll
+            return shouldIntercept ? nil : event
         }
         eventMonitor?.start()
     }
 
     private func setupEventInterceptor() {
-        // 只有在启用"禁用系统原生滚动"时才启动事件拦截器
-        let needsInterceptor = DisplayManager.shared.mouseDisableSystemScroll || DisplayManager.shared.trackpadDisableSystemScroll
+        guard DisplayManager.shared.isEnabled else { return }
+
+        let needsInterceptor = DisplayManager.shared.mouseDisableSystemScroll || DisplayManager.shared.trackpadDisableSystemScroll || DisplayManager.shared.reverseMouseScroll
 
         if needsInterceptor {
+            eventInterceptor?.stop()
+            eventInterceptor = nil
             eventInterceptor = EventInterceptor()
             eventInterceptor?.start()
+        } else {
+            eventInterceptor?.stop()
+            eventInterceptor = nil
         }
     }
 
@@ -214,7 +268,7 @@ class StatusBarController: NSObject, ObservableObject, NSWindowDelegate {
             pendingSingleClickWorkItem?.cancel()
             pendingSingleClickWorkItem = nil
 
-            if DisplayManager.shared.doubleClickToMute {
+            if DisplayManager.shared.doubleClickToMute && DisplayManager.shared.isEnabled {
                 DisplayManager.shared.toggleMute()
                 updateIcon()
             } else {
@@ -266,20 +320,34 @@ class StatusBarController: NSObject, ObservableObject, NSWindowDelegate {
         )
 
         DispatchQueue.main.async { [weak self] in
-            self?.statusItem?.button?.image = icon
+            guard let self = self else { return }
+            if DisplayManager.shared.isEnabled {
+                self.statusItem?.button?.image = icon
+                self.statusItem?.button?.alphaValue = 1.0
+            } else {
+                self.statusItem?.button?.image = icon
+                self.statusItem?.button?.alphaValue = 0.35
+            }
         }
     }
 
     private func showMenu() {
         let menu = NSMenu()
 
-        let settingsItem = NSMenuItem(title: "偏好设置", action: #selector(showSettings), keyEquivalent: "")
+        let toggleItem = NSMenuItem(title: L10n.enableApp, action: #selector(toggleEnabled), keyEquivalent: "")
+        toggleItem.target = self
+        toggleItem.state = DisplayManager.shared.isEnabled ? .on : .off
+        menu.addItem(toggleItem)
+
+        menu.addItem(NSMenuItem.separator())
+
+        let settingsItem = NSMenuItem(title: L10n.preferences, action: #selector(showSettings), keyEquivalent: "")
         settingsItem.target = self
         menu.addItem(settingsItem)
 
         menu.addItem(NSMenuItem.separator())
 
-        let quitItem = NSMenuItem(title: "退出", action: #selector(quitApp), keyEquivalent: "q")
+        let quitItem = NSMenuItem(title: L10n.quit, action: #selector(quitApp), keyEquivalent: "q")
         quitItem.target = self
         menu.addItem(quitItem)
 
@@ -288,23 +356,35 @@ class StatusBarController: NSObject, ObservableObject, NSWindowDelegate {
         statusItem?.menu = nil
     }
 
+    @objc private func toggleEnabled() {
+        let dm = DisplayManager.shared
+        dm.isEnabled.toggle()
+        updateIcon()
+        if dm.isEnabled {
+            setupEventInterceptor()
+        } else {
+            eventInterceptor?.stop()
+            eventInterceptor = nil
+        }
+    }
+
     @objc private func quitApp() {
         NSApplication.shared.terminate(nil)
     }
 
-    @objc private func showSettings() {
+    @objc func showSettings() {
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
 
             if self.settingsWindow == nil {
                 let contentView = SettingsView()
                 let window = NSWindow(
-                    contentRect: NSRect(x: 0, y: 0, width: 480, height: 380),
+                    contentRect: NSRect(x: 0, y: 0, width: 390, height: 440),
                     styleMask: [.titled, .closable, .miniaturizable],
                     backing: .buffered,
                     defer: false
                 )
-                window.title = "偏好设置"
+                window.title = L10n.preferences
                 window.delegate = self
                 window.isReleasedWhenClosed = false
                 window.contentView = NSHostingView(rootView: contentView)
@@ -312,6 +392,7 @@ class StatusBarController: NSObject, ObservableObject, NSWindowDelegate {
                 self.settingsWindow = window
             }
 
+            self.settingsWindow?.title = L10n.preferences
             self.settingsWindow?.makeKeyAndOrderFront(nil)
             self.settingsWindow?.orderFrontRegardless()
             NSApp.activate(ignoringOtherApps: true)

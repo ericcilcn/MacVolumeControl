@@ -1,8 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
-APP_NAME="MacVolumeControl"
-VOLUME_NAME="MacVolumeControl"
+APP_NAME="Rolume"
+VOLUME_NAME="Rolume"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 ASSETS_DIR="$SCRIPT_DIR/dmg-assets"
