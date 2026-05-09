@@ -13,8 +13,7 @@ struct SwitchRow: View {
             Spacer()
             Toggle("", isOn: $isOn)
                 .toggleStyle(.switch)
-                .controlSize(.mini)
-                .scaleEffect(0.85)
+                .controlSize(.small)
                 .labelsHidden()
                 .tint(.accentColor)
         }
@@ -48,7 +47,7 @@ struct SettingsView: View {
     @State private var reverseMouseScroll: Bool = DisplayManager.shared.reverseMouseScroll
     @State private var excludedApps: [String] = DisplayManager.shared.reversalExcludedApps
     @State private var showDockIcon: Bool = DisplayManager.shared.showDockIcon
-    @State private var selectedLanguage = LanguageManager.shared.current
+    @State private var selectedLanguage: AppLanguage? = LanguageManager.shared.explicitLanguage
     @State private var showFAQ = false
     @State private var showExclusionSheet = false
     @State private var showResetAlert = false
@@ -76,8 +75,9 @@ struct SettingsView: View {
                 default: basicTab()
                 }
             }
+            .id(languageManager.current)
         }
-        .frame(minWidth: 370, minHeight: 420)
+        .frame(minWidth: 370, minHeight: 435)
         .sheet(isPresented: $showExclusionSheet) {
             ExclusionListView(excludedApps: $excludedApps)
                 .onChange(of: excludedApps) {
@@ -95,11 +95,10 @@ struct SettingsView: View {
                     Text(active.name).font(.headline)
                     HStack(spacing: 12) {
                         Image(systemName: active.isExternal ? "display" : "speaker.wave.2").foregroundColor(.secondary)
-                        Slider(value: Binding(get: { Double(active.currentVolume) }, set: { newValue in
-                            let delta = Int(newValue) - active.currentVolume
-                            displayManager.adjustVolume(by: delta)
-                        }), in: 0...Double(active.maxVolume))
-                        Text("\(active.currentVolume)").font(.system(.body, design: .monospaced)).frame(width: 35, alignment: .trailing)
+                        Slider(value: volumeBinding(for: active), in: 0...Double(active.maxVolume))
+                        Text("\(active.currentVolume)%")
+                            .font(.system(.body, design: .monospaced))
+                            .frame(width: 48, alignment: .trailing)
                     }
                 }
             }
@@ -118,14 +117,19 @@ struct SettingsView: View {
                 Text(L10n.language)
                 Spacer()
                 Picker("", selection: $selectedLanguage) {
+                    Text(L10n.followSystem).tag(AppLanguage?.none)
                     ForEach(AppLanguage.allCases, id: \.self) { lang in
-                        Text(lang.displayName).tag(lang)
+                        Text(lang.displayName).tag(AppLanguage?.some(lang))
                     }
                 }
                 .pickerStyle(.menu)
-                .frame(width: 100)
+                .frame(width: 140)
                 .onChange(of: selectedLanguage) {
-                    languageManager.current = selectedLanguage
+                    if let lang = selectedLanguage {
+                        languageManager.current = lang
+                    } else {
+                        languageManager.followSystem()
+                    }
                 }
             }
             Spacer()
@@ -227,41 +231,46 @@ struct SettingsView: View {
     // MARK: - 关于
 
     func aboutTab() -> some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 14) {
             if let appIcon = NSApp.applicationIconImage {
-                Image(nsImage: appIcon).resizable().frame(width: 56, height: 56)
+                Image(nsImage: appIcon).resizable().frame(width: 64, height: 64)
             }
             Text("Rolume").font(.title2).fontWeight(.bold)
-            Text("Version \(L10n.version)").font(.caption).foregroundColor(.secondary)
+            Text("Version \(appVersion)").foregroundColor(.secondary)
 
             Divider().padding(.horizontal, 30)
 
-            // 反馈 & GitHub
-            VStack(spacing: 4) {
-                HStack(spacing: 16) {
+            Button(L10n.sponsor) {
+                if let url = URL(string: sponsorURLString) { NSWorkspace.shared.open(url) }
+            }
+            .buttonStyle(.link)
+
+            Divider().padding(.horizontal, 30)
+
+            VStack(spacing: 6) {
+                HStack(spacing: 0) {
                     Button("GitHub") {
-                    if let url = URL(string: "https://github.com/ericcilcn/Rolume") { NSWorkspace.shared.open(url) }
+                        if let url = URL(string: "https://github.com/ericcilcn/Rolume") { NSWorkspace.shared.open(url) }
+                    }
+                    .buttonStyle(.link)
+                    Text(" · ").foregroundColor(.secondary)
+                    Button(L10n.faq) { showFAQ = true }
+                        .buttonStyle(.link)
+                        .popover(isPresented: $showFAQ) { faqContent() }
                 }
-                .buttonStyle(.link)
-            }
 
-            Text("Ericcil@163.com")
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .textSelection(.enabled)
+                Text("Ericcil@163.com")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .textSelection(.enabled)
             }
 
             Divider().padding(.horizontal, 30)
 
-            Button(L10n.faq) { showFAQ = true }
-                .popover(isPresented: $showFAQ) {
-                    faqContent()
-                }
-
-            Divider().padding(.horizontal, 30)
-
-            Button(L10n.resetDefaults) { showResetAlert = true }
-                .buttonStyle(.borderedProminent)
+            Button(role: .destructive) { showResetAlert = true } label: {
+                Text(L10n.resetDefaults)
+            }
+                .buttonStyle(.bordered)
                 .controlSize(.small)
                 .alert(L10n.resetAlertTitle, isPresented: $showResetAlert) {
                     Button(L10n.cancel, role: .cancel) { showResetAlert = false }
@@ -274,7 +283,7 @@ struct SettingsView: View {
                 } message: { Text(L10n.resetAlertMessage) }
             Spacer()
         }
-        .padding(20)
+        .padding(.horizontal, 20).padding(.top, 16).padding(.bottom, 8)
     }
 
     func faqContent() -> some View {
@@ -330,6 +339,29 @@ struct SettingsView: View {
         displayManager.reverseMouseScroll = reverseMouseScroll
         displayManager.showDockIcon = showDockIcon
     }
+
+    private var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? L10n.version
+    }
+
+    private var sponsorURLString: String {
+        languageManager.current == .chinese ? "https://ifdian.net/a/Rolume" : "https://ko-fi.com/rolume"
+    }
+
+    private func volumeBinding(for active: Display) -> Binding<Double> {
+        Binding(
+            get: {
+                Double(displayManager.activeDisplay?.currentVolume ?? active.currentVolume)
+            },
+            set: { newValue in
+                let targetVolume = Int(newValue.rounded())
+                let currentVolume = displayManager.activeDisplay?.currentVolume ?? active.currentVolume
+                let delta = targetVolume - currentVolume
+                guard delta != 0 else { return }
+                displayManager.adjustVolume(by: delta)
+            }
+        )
+    }
 }
 
 // MARK: - Tab Button
@@ -369,6 +401,7 @@ struct ExclusionListView: View {
                                 Image(systemName: "xmark.circle.fill").font(.caption).foregroundColor(.secondary)
                             }
                             .buttonStyle(.plain)
+                            .accessibilityLabel(Text("\(L10n.remove) \(appName(for: bundleID))"))
                         }
                         .padding(.vertical, 2)
                     }
@@ -428,25 +461,30 @@ struct TabButton: View {
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
+        Button {
+            action()
+        } label: {
             VStack(spacing: 6) {
-                Rectangle()
-                    .fill(Color.clear)
-                    .frame(width: 36, height: 30)
-                    .overlay(
-                        Image(systemName: icon)
-                            .font(.system(size: 22))
-                    )
+                Image(systemName: icon)
+                    .font(.system(size: 22, weight: .regular))
+                    .symbolRenderingMode(.monochrome)
+                    .frame(width: 36, height: 30, alignment: .center)
+
                 Text(title)
                     .font(.caption)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+                    .frame(height: 16, alignment: .center)
             }
-            .frame(maxWidth: .infinity)
-            .frame(height: 64)
+            .frame(maxWidth: .infinity, minHeight: 64, maxHeight: 64)
             .foregroundColor(isSelected ? .accentColor : .secondary)
-            .background(isSelected ? Color.accentColor.opacity(0.1) : Color.clear)
-            .cornerRadius(8)
-            .contentShape(Rectangle())
+            .background {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.accentColor.opacity(isSelected ? 0.1 : 0))
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
         .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
     }
 }

@@ -6,6 +6,11 @@ import CoreAudio
 
 class DisplayManager: ObservableObject {
     static let shared = DisplayManager()
+    private let ddcVolumeMaxValue: UInt16 = 100
+    private let fallbackDisplayVolume = 25
+    private let maxDDCRefreshRetries = 5
+    private var pendingDDCRefreshWorkItem: DispatchWorkItem?
+    private var ddcRefreshRetryCount = 0
 
     @Published var displays: [Display] = []
     @Published var activeDisplay: Display?
@@ -146,6 +151,7 @@ class DisplayManager: ObservableObject {
         }
         set {
             UserDefaults.standard.set(newValue, forKey: "mouseScrollInDock")
+            notifyInterceptorRefresh()
         }
     }
 
@@ -158,6 +164,7 @@ class DisplayManager: ObservableObject {
         }
         set {
             UserDefaults.standard.set(newValue, forKey: "mouseScrollInMenuBar")
+            notifyInterceptorRefresh()
         }
     }
 
@@ -194,6 +201,7 @@ class DisplayManager: ObservableObject {
         }
         set {
             UserDefaults.standard.set(newValue, forKey: "trackpadScrollInDock")
+            notifyInterceptorRefresh()
         }
     }
 
@@ -206,6 +214,7 @@ class DisplayManager: ObservableObject {
         }
         set {
             UserDefaults.standard.set(newValue, forKey: "trackpadScrollInMenuBar")
+            notifyInterceptorRefresh()
         }
     }
 
@@ -285,6 +294,7 @@ class DisplayManager: ObservableObject {
         }
         set {
             UserDefaults.standard.set(newValue, forKey: "reversalExcludedApps")
+            notifyInterceptorRefresh()
         }
     }
 
@@ -343,56 +353,86 @@ class DisplayManager: ObservableObject {
         print("🔍 Detected \(displayCount) online display(s)")
         #endif
 
-        // 检查当前音频输出是否是显示器音频
+        let displayIDs = Array(onlineDisplays.prefix(Int(displayCount)))
+        let externalDisplayIDs = displayIDs.filter { CGDisplayIsBuiltin($0) == 0 }
+        DDCManager.shared.configure(displayIDs: externalDisplayIDs)
+
+        let audioDeviceName = SystemAudioManager.shared.getDeviceName()
         let isDisplayAudio = SystemAudioManager.shared.isCurrentOutputDisplayAudio()
+        let canSetSystemVolume = SystemAudioManager.shared.canSetVolume()
         #if DEBUG
         print("🔊 Current audio output is display audio: \(isDisplayAudio)")
+        print("🔊 Current audio output: \(audioDeviceName), CoreAudio settable: \(canSetSystemVolume)")
         #endif
 
-        var hasExternal = false
-        for i in 0..<Int(displayCount) {
-            let displayID = onlineDisplays[i]
+        for i in 0..<displayIDs.count {
+            let displayID = displayIDs[i]
             let isBuiltIn = CGDisplayIsBuiltin(displayID) != 0
             #if DEBUG
             print("  Display \(i): ID=\(displayID), isBuiltIn=\(isBuiltIn)")
             #endif
 
             if !isBuiltIn {
-                hasExternal = true
                 let name = getDisplayName(displayID)
                 var display = Display(id: displayID, name: name, isExternal: true)
+                let isAudioTarget = isDisplayAudio && isAudioDeviceName(audioDeviceName, matchingDisplayName: name)
 
-                // 读取真实音量
                 if let result = DDCManager.shared.readVolume(for: displayID) {
-                    display.currentVolume = Int(result.currentValue)
-                    display.maxVolume = Int(result.maxValue)
-                    #if DEBUG
-                    print("📺 External display: \(name), volume: \(display.currentVolume)/\(display.maxVolume)")
-                    #endif
-                } else {
-                    // 尝试从 UserDefaults 加载上次保存的音量
-                    display.currentVolume = loadSavedVolume(for: displayID) ?? 50
+                    resetDDCRefreshRetry()
+                    display.currentVolume = safeVolumePercent(
+                        current: result.currentValue,
+                        max: result.maxValue,
+                        displayID: displayID
+                    )
                     display.maxVolume = 100
+                    display.ddcMaxValue = ddcVolumeMaxValue
+                    display.isDDCAvailable = true
+                    display.isAudioOutputTarget = isAudioTarget
+
                     #if DEBUG
-                    print("📺 External display: \(name), using saved volume: \(display.currentVolume)")
+                    let route = display.isAudioOutputTarget ? ", audio target" : ""
+                    print("📺 External display: \(name), volume: \(display.currentVolume)%, DDC raw: \(result.currentValue)/\(result.maxValue), using max: \(display.ddcMaxValue)\(route)")
                     #endif
+                    displayList.append(display)
+                    continue
                 }
 
+                let hasWriteBackend = DDCManager.shared.hasBackend(for: displayID)
+                guard hasWriteBackend || isAudioTarget else {
+                    #if DEBUG
+                    print("📺 External display: \(name), DDC unavailable")
+                    #endif
+                    scheduleDDCRefreshRetry(reason: "DDC backend not ready for \(name)")
+                    continue
+                }
+
+                display.currentVolume = loadSavedVolume(for: displayID) ?? fallbackDisplayVolume
+                display.maxVolume = 100
+                display.ddcMaxValue = ddcVolumeMaxValue
+                display.isDDCAvailable = hasWriteBackend
+                display.isAudioOutputTarget = isAudioTarget
+
+                #if DEBUG
+                let route = display.isAudioOutputTarget ? ", audio target" : ""
+                let state = hasWriteBackend ? "read failed, write backend available" : "waiting for DDC backend"
+                print("📺 External display: \(name), \(state), using saved volume: \(display.currentVolume)%\(route)")
+                #endif
                 displayList.append(display)
+                scheduleDDCRefreshRetry(reason: "DDC read not ready for \(name)")
             }
         }
 
+        let hasDisplayAudioTarget = displayList.contains { $0.isAudioOutputTarget }
         #if DEBUG
-        print("🔍 hasExternal = \(hasExternal)")
+        print("🔍 DDC displays = \(displayList.count), hasDisplayAudioTarget = \(hasDisplayAudioTarget)")
         #endif
 
-        // 如果音频输出不是显示器，或者没有外接显示器，使用系统音频控制
-        if !isDisplayAudio || !hasExternal {
+        // 显示器音频匹配到 DDC 屏时优先控制显示器；否则保留系统音频项，避免误控另一台屏。
+        if !hasDisplayAudioTarget {
             #if DEBUG
             print("🔍 Creating audio output device...")
             #endif
-            let deviceName = SystemAudioManager.shared.getDeviceName()
-            var audioDevice = Display(id: 0, name: deviceName, isExternal: false)
+            var audioDevice = Display(id: 0, name: audioDeviceName, isExternal: false)
             if let volume = SystemAudioManager.shared.getVolume() {
                 audioDevice.currentVolume = Int(volume * 100)
                 audioDevice.maxVolume = 100
@@ -417,13 +457,11 @@ class DisplayManager: ObservableObject {
     }
 
     func updateActiveDisplay() {
-        // 如果只有一个显示器，直接设为活跃
         if displays.count == 1 {
             activeDisplay = displays.first
             return
         }
 
-        // 如果有音频输出设备（非显示器音频），优先使用它
         if let audioDevice = displays.first(where: { !$0.isExternal }) {
             activeDisplay = audioDevice
             #if DEBUG
@@ -432,12 +470,15 @@ class DisplayManager: ObservableObject {
             return
         }
 
-        // 否则根据鼠标位置选择显示器
-        guard let mouseLocation = NSEvent.mouseLocation as CGPoint? else {
-            activeDisplay = displays.first
+        if let audioTarget = displays.first(where: { $0.isAudioOutputTarget }) {
+            activeDisplay = audioTarget
+            #if DEBUG
+            print("🎯 Active display set to audio target: \(audioTarget.name)")
+            #endif
             return
         }
 
+        let mouseLocation = NSEvent.mouseLocation
         for display in displays {
             if let bounds = getDisplayBounds(display.id),
                bounds.contains(mouseLocation) {
@@ -468,9 +509,10 @@ class DisplayManager: ObservableObject {
 
         var success = false
         if active.isExternal {
-            success = DDCManager.shared.setVolume(UInt16(newVolume), for: active.id)
+            let ddcValue = ddcValue(forPercent: newVolume, display: active)
+            success = DDCManager.shared.setVolume(ddcValue, for: active.id)
             #if DEBUG
-            print("  DDC result: \(success ? "✅" : "❌")")
+            print("  DDC result: \(success ? "✅" : "❌"), raw value: \(ddcValue)")
             #endif
         } else {
             success = SystemAudioManager.shared.setVolume(Float(newVolume) / 100.0)
@@ -482,6 +524,8 @@ class DisplayManager: ObservableObject {
         if success {
             if let index = displays.firstIndex(where: { $0.id == active.id }) {
                 displays[index].currentVolume = newVolume
+                displays[index].maxVolume = 100
+                displays[index].isDDCAvailable = active.isExternal ? true : displays[index].isDDCAvailable
                 displays[index].isMuted = false
                 activeDisplay = displays[index]
 
@@ -497,6 +541,8 @@ class DisplayManager: ObservableObject {
                         displayID: active.id
                     )
                 }
+
+                NotificationCenter.default.post(name: NSNotification.Name("DisplayChanged"), object: nil)
             }
         }
     }
@@ -522,15 +568,19 @@ class DisplayManager: ObservableObject {
 
             var success = false
             if active.isExternal {
-                success = DDCManager.shared.setVolume(UInt16(restoreVolume), for: active.id)
+                let ddcValue = ddcValue(forPercent: restoreVolume, display: active)
+                success = DDCManager.shared.setVolume(ddcValue, for: active.id)
             } else {
                 success = SystemAudioManager.shared.setVolume(Float(restoreVolume) / 100.0)
             }
 
             if success {
                 displays[index].currentVolume = restoreVolume
+                displays[index].maxVolume = 100
+                displays[index].isDDCAvailable = active.isExternal ? true : displays[index].isDDCAvailable
                 displays[index].isMuted = false
                 activeDisplay = displays[index]
+                NotificationCenter.default.post(name: NSNotification.Name("DisplayChanged"), object: nil)
             }
         } else {
             // 静音：保存当前音量，然后设为 0
@@ -545,10 +595,84 @@ class DisplayManager: ObservableObject {
 
             if success {
                 displays[index].currentVolume = 0
+                displays[index].maxVolume = 100
+                displays[index].isDDCAvailable = active.isExternal ? true : displays[index].isDDCAvailable
                 displays[index].isMuted = true
                 activeDisplay = displays[index]
+                NotificationCenter.default.post(name: NSNotification.Name("DisplayChanged"), object: nil)
             }
         }
+    }
+
+    private func safeVolumePercent(current: UInt16, max: UInt16, displayID: CGDirectDisplayID) -> Int {
+        if (1...ddcVolumeMaxValue).contains(max), current <= max {
+            return volumePercent(current: current, max: max)
+        }
+
+        if current <= ddcVolumeMaxValue {
+            return Int(current)
+        }
+
+        let saved = loadSavedVolume(for: displayID)
+        #if DEBUG
+        print("⚠️ Ignoring suspicious DDC volume range: \(current)/\(max), fallback: \(saved ?? fallbackDisplayVolume)%")
+        #endif
+        return saved ?? fallbackDisplayVolume
+    }
+
+    private func volumePercent(current: UInt16, max: UInt16) -> Int {
+        guard max > 0 else { return fallbackDisplayVolume }
+        let percent = (Double(current) / Double(max) * 100.0).rounded()
+        return Swift.max(0, Swift.min(100, Int(percent)))
+    }
+
+    private func ddcValue(forPercent percent: Int, display: Display) -> UInt16 {
+        let clampedPercent = Swift.max(0, Swift.min(100, percent))
+        let rawMax = Swift.max(1, Swift.min(Int(ddcVolumeMaxValue), Int(display.ddcMaxValue)))
+        let rawValue = (Double(clampedPercent) / 100.0 * Double(rawMax)).rounded()
+        let boundedRawValue = UInt16(Swift.max(0, Swift.min(rawMax, Int(rawValue))))
+        return clampedPercent > 0 ? Swift.max(1, boundedRawValue) : 0
+    }
+
+    private func scheduleDDCRefreshRetry(reason: String) {
+        guard ddcRefreshRetryCount < maxDDCRefreshRetries else {
+            #if DEBUG
+            print("⏸️ DDC refresh retry budget exhausted: \(reason)")
+            #endif
+            return
+        }
+
+        pendingDDCRefreshWorkItem?.cancel()
+        ddcRefreshRetryCount += 1
+
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self = self else { return }
+            #if DEBUG
+            print("🔁 Retrying display refresh: \(reason)")
+            #endif
+            self.refreshDisplays()
+            NotificationCenter.default.post(name: NSNotification.Name("DisplayChanged"), object: nil)
+        }
+
+        pendingDDCRefreshWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: workItem)
+    }
+
+    private func resetDDCRefreshRetry() {
+        pendingDDCRefreshWorkItem?.cancel()
+        pendingDDCRefreshWorkItem = nil
+        ddcRefreshRetryCount = 0
+    }
+
+    private func isAudioDeviceName(_ deviceName: String, matchingDisplayName displayName: String) -> Bool {
+        let device = normalizedAudioName(deviceName)
+        let display = normalizedAudioName(displayName)
+        guard !device.isEmpty, !display.isEmpty else { return false }
+        return device == display || device.contains(display) || display.contains(device)
+    }
+
+    private func normalizedAudioName(_ name: String) -> String {
+        name.lowercased().filter { $0.isLetter || $0.isNumber }
     }
 
     private func getDisplayName(_ displayID: CGDirectDisplayID) -> String {
@@ -616,6 +740,7 @@ class DisplayManager: ObservableObject {
         #if DEBUG
         print("🔄 Audio output device changed, refreshing...")
         #endif
+        resetDDCRefreshRetry()
         SystemAudioManager.shared.updateVolumeMonitoring()
         refreshDisplays()
         NotificationCenter.default.post(name: NSNotification.Name("DisplayChanged"), object: nil)
@@ -641,6 +766,7 @@ class DisplayManager: ObservableObject {
         #if DEBUG
         print("🔄 Display configuration changed, refreshing...")
         #endif
+        resetDDCRefreshRetry()
         refreshDisplays()
         // 通知 StatusBarController 更新图标
         NotificationCenter.default.post(name: NSNotification.Name("DisplayChanged"), object: nil)

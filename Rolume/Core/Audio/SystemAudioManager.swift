@@ -92,6 +92,25 @@ class SystemAudioManager {
         return 1
     }
 
+    private func isVolumeSettable(deviceID: AudioDeviceID, channel: UInt32) -> Bool {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyVolumeScalar,
+            mScope: kAudioDevicePropertyScopeOutput,
+            mElement: channel
+        )
+        guard AudioObjectHasProperty(deviceID, &address) else { return false }
+
+        var settable: DarwinBoolean = false
+        AudioObjectIsPropertySettable(deviceID, &address, &settable)
+        return settable.boolValue
+    }
+
+    func canSetVolume() -> Bool {
+        guard let deviceID = getDefaultOutputDevice() else { return false }
+        let channel = getVolumeChannel(for: deviceID)
+        return isVolumeSettable(deviceID: deviceID, channel: channel)
+    }
+
     /// 获取当前系统音量（0.0 ~ 1.0）
     func getVolume() -> Float? {
         guard let deviceID = getDefaultOutputDevice() else { return nil }
@@ -149,6 +168,7 @@ class SystemAudioManager {
         guard let deviceID = getDefaultOutputDevice() else { return false }
 
         let channel = getVolumeChannel(for: deviceID)
+        guard isVolumeSettable(deviceID: deviceID, channel: channel) else { return false }
         var vol = max(0.0, min(1.0, volume))
         let size = UInt32(MemoryLayout<Float32>.size)
         var address = AudioObjectPropertyAddress(

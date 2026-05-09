@@ -50,6 +50,10 @@ class EventInterceptor {
         var isEnabled = true
         var mouseModifierKey: DisplayManager.ModifierKey = .option
         var trackpadModifierKey: DisplayManager.ModifierKey = .option
+        var mouseScrollInDock = true
+        var mouseScrollInMenuBar = false
+        var trackpadScrollInDock = true
+        var trackpadScrollInMenuBar = false
         var mouseScrollWithModifier = false
         var trackpadScrollWithModifier = false
         var mouseDisableSystemScroll = false
@@ -63,12 +67,17 @@ class EventInterceptor {
 
     /// 当前前台 App 的 bundle ID，由 workspace 通知更新
     private static var frontmostAppID: String = ""
+    private static var frontmostAppObserver: NSObjectProtocol?
 
     private static func refreshSettings() {
         let dm = DisplayManager.shared
         settings.isEnabled = dm.isEnabled
         settings.mouseModifierKey = dm.mouseModifierKey
         settings.trackpadModifierKey = dm.trackpadModifierKey
+        settings.mouseScrollInDock = dm.mouseScrollInDock
+        settings.mouseScrollInMenuBar = dm.mouseScrollInMenuBar
+        settings.trackpadScrollInDock = dm.trackpadScrollInDock
+        settings.trackpadScrollInMenuBar = dm.trackpadScrollInMenuBar
         settings.mouseScrollWithModifier = dm.mouseScrollWithModifier
         settings.trackpadScrollWithModifier = dm.trackpadScrollWithModifier
         settings.mouseDisableSystemScroll = dm.mouseDisableSystemScroll
@@ -97,7 +106,7 @@ class EventInterceptor {
         }
     }
 
-    func start() {
+    func start() -> Bool {
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true]
         let accessEnabled = AXIsProcessTrustedWithOptions(options as CFDictionary)
 
@@ -108,7 +117,7 @@ class EventInterceptor {
             #if DEBUG
             print("⚠️ 请在 系统设置 → 隐私与安全性 → 辅助功能 中启用 Rolume")
             #endif
-            return
+            return false
         }
 
         Self.refreshSettings()
@@ -119,7 +128,10 @@ class EventInterceptor {
         Self.trackpadCheckCount = 0
         Self.trackpadCheckCache = false
 
-        NSWorkspace.shared.notificationCenter.addObserver(
+        if let observer = Self.frontmostAppObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+        }
+        Self.frontmostAppObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification,
             object: nil,
             queue: nil
@@ -144,7 +156,7 @@ class EventInterceptor {
             #if DEBUG
             print("❌ 无法创建事件拦截器 - 可能需要辅助功能权限")
             #endif
-            return
+            return false
         }
 
         self.eventTap = eventTap
@@ -156,6 +168,7 @@ class EventInterceptor {
         #if DEBUG
         print("✅ 事件拦截器已启动")
         #endif
+        return true
     }
 
     private static func handleEvent(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent, refcon: UnsafeMutableRawPointer?) -> Unmanaged<CGEvent>? {
@@ -175,8 +188,22 @@ class EventInterceptor {
         case .shift:     isModifierPressed = flags.contains(.maskShift)
         }
 
-        let shouldHandle = isModifierPressed && (isTrackpad ? s.trackpadScrollWithModifier : s.mouseScrollWithModifier)
+        let isInDockArea = Self.isMouseInDockArea()
+        let isInMenuBarArea = Self.isMouseInMenuBarArea()
+
+        var shouldHandle = false
+        if isTrackpad {
+            shouldHandle = (s.trackpadScrollInDock && isInDockArea)
+                || (s.trackpadScrollInMenuBar && isInMenuBarArea)
+                || (s.trackpadScrollWithModifier && isModifierPressed)
+        } else {
+            shouldHandle = (s.mouseScrollInDock && isInDockArea)
+                || (s.mouseScrollInMenuBar && isInMenuBarArea)
+                || (s.mouseScrollWithModifier && isModifierPressed)
+        }
         let shouldBlockScroll = isTrackpad ? s.trackpadDisableSystemScroll : s.mouseDisableSystemScroll
+
+        let volumeRawDelta = event.getIntegerValueField(.scrollWheelEventDeltaAxis1)
 
         if s.reverseMouseScroll && !isTrackpad && !s.excludedApps.contains(frontmostAppID) {
             let deltaY = event.getIntegerValueField(.scrollWheelEventDeltaAxis1)
@@ -191,10 +218,8 @@ class EventInterceptor {
         }
 
         if shouldHandle {
-            let rawDelta = event.getIntegerValueField(.scrollWheelEventDeltaAxis1)
-            let cgEventAlreadyReversed = !isTrackpad && s.reverseMouseScroll
-            let needsNegate = isNaturalScrollingEnabled && !cgEventAlreadyReversed
-            let scrollDelta = needsNegate ? -rawDelta : rawDelta
+            // 音量调节使用反转前的物理滚轮方向，保证向上加音量、向下减音量。
+            let scrollDelta = isNaturalScrollingEnabled ? -volumeRawDelta : volumeRawDelta
 
             var volumeChange = 0
 
@@ -224,16 +249,49 @@ class EventInterceptor {
 
             if volumeChange != 0 {
                 DispatchQueue.main.async {
+                    DisplayManager.shared.updateActiveDisplay()
                     DisplayManager.shared.adjustVolume(by: volumeChange)
                     NotificationCenter.default.post(name: NSNotification.Name("DisplayChanged"), object: nil)
                 }
-                return nil  // 已调节音量，吞掉事件，避免 NSEvent 路径重复处理
+                return shouldBlockScroll ? nil : Unmanaged.passRetained(event)
             }
 
             return shouldBlockScroll ? nil : Unmanaged.passRetained(event)
         }
 
         return Unmanaged.passRetained(event)
+    }
+
+    private static func isMouseInDockArea() -> Bool {
+        let mouseLocation = NSEvent.mouseLocation
+        for screen in NSScreen.screens {
+            let frame = screen.frame
+            let dockHeight: CGFloat = 80
+            let dockArea = CGRect(x: frame.minX, y: frame.minY, width: frame.width, height: dockHeight)
+            if dockArea.contains(mouseLocation) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private static func isMouseInMenuBarArea() -> Bool {
+        let mouseLocation = NSEvent.mouseLocation
+        for screen in NSScreen.screens {
+            let frame = screen.frame
+            let menuBarHeight: CGFloat = 30
+            let buffer: CGFloat = 5
+            let menuBarArea = CGRect(
+                x: frame.minX,
+                y: frame.maxY - menuBarHeight,
+                width: frame.width,
+                height: menuBarHeight + buffer
+            )
+            if menuBarArea.contains(mouseLocation) {
+                return true
+            }
+        }
+        return false
     }
 
     func stop() {
@@ -245,6 +303,10 @@ class EventInterceptor {
         }
         eventTap = nil
         runLoopSource = nil
+        if let observer = Self.frontmostAppObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+            Self.frontmostAppObserver = nil
+        }
         Self.stopObservingSettings()
     }
 

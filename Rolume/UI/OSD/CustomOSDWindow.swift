@@ -5,6 +5,8 @@ class CustomOSDWindow {
     private var window: NSWindow?
     private var hideTimer: Timer?
     private var isShowing = false
+    private let horizontalScreenInset: CGFloat = 28
+    private let verticalScreenInset: CGFloat = 46
 
     func show(volume: Int, maxVolume: Int, on displayID: CGDirectDisplayID) {
         hideTimer?.invalidate()
@@ -14,7 +16,7 @@ class CustomOSDWindow {
 
         if window == nil {
             let osdWindow = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 320, height: 70),
+                contentRect: NSRect(x: 0, y: 0, width: 300, height: 66),
                 styleMask: [.borderless, .fullSizeContentView],
                 backing: .buffered,
                 defer: false
@@ -31,7 +33,7 @@ class CustomOSDWindow {
             visualEffectView.state = .active
             visualEffectView.blendingMode = .behindWindow
             visualEffectView.wantsLayer = true
-            visualEffectView.layer?.cornerRadius = 16
+            visualEffectView.layer?.cornerRadius = 24
             visualEffectView.layer?.masksToBounds = true
             visualEffectView.alphaValue = 0.85
 
@@ -78,8 +80,8 @@ class CustomOSDWindow {
         guard let window = window else { return }
         let bounds = CGDisplayBounds(displayID)
 
-        let x = bounds.maxX - window.frame.width - 40
-        let y = bounds.maxY - window.frame.height - 40
+        let x = bounds.maxX - window.frame.width - horizontalScreenInset
+        let y = bounds.maxY - window.frame.height - verticalScreenInset
         window.setFrameOrigin(NSPoint(x: x, y: y))
     }
 
@@ -111,13 +113,14 @@ struct CustomOSDView: View {
     let deviceName: String
 
     var body: some View {
-        VStack(spacing: 12) {
+        VStack(alignment: .leading, spacing: 9) {
             Text(deviceName)
-                .font(.system(size: 14, weight: .medium))
+                .font(.system(size: 14, weight: .semibold))
                 .foregroundColor(.white)
-                .padding(.top, 8)
+                .lineLimit(1)
+                .truncationMode(.middle)
 
-            HStack(spacing: 12) {
+            HStack(spacing: 10) {
                 Image(systemName: percentage < 0.01 ? "speaker.slash.fill" : "speaker.fill")
                     .font(.system(size: 18))
                     .foregroundColor(.white)
@@ -141,8 +144,8 @@ struct CustomOSDView: View {
                     .foregroundColor(.white)
                     .frame(width: 24)
             }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 8)
         }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 10)
     }
 }

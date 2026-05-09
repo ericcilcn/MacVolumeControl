@@ -32,6 +32,7 @@ struct L10n {
     static var launchAtLogin: String    { lang == .chinese ? "开机启动" : "Launch at login" }
     static var showDockIcon: String     { lang == .chinese ? "在 Dock 栏显示图标" : "Show in Dock" }
     static var language: String         { lang == .chinese ? "语言" : "Language" }
+    static var followSystem: String      { lang == .chinese ? "跟随系统" : "Follow System" }
     static var languageRestartNote: String { lang == .chinese ? "更改即时生效" : "Changes take effect immediately" }
 
     // Mouse
@@ -46,6 +47,7 @@ struct L10n {
     static var excludedApps: String          { lang == .chinese ? "排除的 App" : "Excluded Apps" }
     static var addApp: String                { lang == .chinese ? "添加 App" : "Add App" }
     static var done: String                  { lang == .chinese ? "完成" : "Done" }
+    static var remove: String                { lang == .chinese ? "移除" : "Remove" }
     static var noExcludedApps: String        { lang == .chinese ? "未添加任何 App，反转对所有 App 生效" : "No apps excluded, reversal applies to all apps" }
     static var reverseScrollNote: String     { lang == .chinese ? "独立反转鼠标滚轮方向，不影响触控板自然滚动" : "Reverse mouse scroll independently, leaving trackpad unaffected" }
 
@@ -59,6 +61,7 @@ struct L10n {
     static var version: String        { "1.1" }
     static var copy: String           { lang == .chinese ? "复制" : "Copy" }
     static var feedback: String       { lang == .chinese ? "邮件反馈" : "Email Feedback" }
+    static var sponsor: String        { lang == .chinese ? "支持 Rolume" : "Support Rolume" }
     static var resetDefaults: String  { lang == .chinese ? "恢复默认设置" : "Restore Defaults" }
     static var resetAlertTitle: String { lang == .chinese ? "确认恢复默认设置" : "Restore Default Settings" }
     static var resetAlertMessage: String { lang == .chinese ? "此操作将恢复所有设置为默认值" : "This will restore all settings to defaults" }
@@ -89,12 +92,35 @@ struct L10n {
 
 class LanguageManager: ObservableObject {
     static let shared = LanguageManager()
+    private var shouldPersistCurrentLanguage = true
+
+    private static func systemLanguage() -> AppLanguage {
+        let preferred = Locale.preferredLanguages.first ?? "en"
+        return preferred.hasPrefix("zh") ? .chinese : .english
+    }
+
+    /// nil = 跟随系统，非 nil = 用户手动选择
+    var explicitLanguage: AppLanguage? {
+        get {
+            guard let raw = UserDefaults.standard.string(forKey: "appLanguage") else { return nil }
+            return AppLanguage(rawValue: raw)
+        }
+    }
 
     @Published var current: AppLanguage {
         didSet {
-            UserDefaults.standard.set(current.rawValue, forKey: "appLanguage")
+            if shouldPersistCurrentLanguage {
+                UserDefaults.standard.set(current.rawValue, forKey: "appLanguage")
+            }
             NotificationCenter.default.post(name: NSNotification.Name("LanguageChanged"), object: nil)
         }
+    }
+
+    func followSystem() {
+        UserDefaults.standard.removeObject(forKey: "appLanguage")
+        shouldPersistCurrentLanguage = false
+        current = Self.systemLanguage()
+        shouldPersistCurrentLanguage = true
     }
 
     private init() {
@@ -103,8 +129,7 @@ class LanguageManager: ObservableObject {
             current = lang
         } else {
             // 跟随系统语言
-            let preferred = Bundle.main.preferredLocalizations.first ?? "en"
-            current = preferred.hasPrefix("zh") ? .chinese : .english
+            current = Self.systemLanguage()
         }
     }
 }

@@ -7,7 +7,8 @@ class VolumeIconGenerator {
 
         image.lockFocus()
 
-        let percentage = maxVolume > 0 ? Double(volume) / Double(maxVolume) : 0.0
+        let rawPercentage = maxVolume > 0 ? Double(volume) / Double(maxVolume) : 0.0
+        let percentage = max(0.0, min(1.0, rawPercentage))
 
         // 鼠标滚轮尺寸（纵向）
         let wheelWidth: CGFloat = 8

@@ -2,11 +2,12 @@ import AppKit
 import SwiftUI
 import Combine
 
-class StatusBarController: NSObject, ObservableObject, NSWindowDelegate {
+class StatusBarController: NSObject, ObservableObject, NSWindowDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem?
     private var eventMonitor: EventMonitor?
     private var eventInterceptor: EventInterceptor?
     private var settingsWindow: NSWindow?
+    private var statusMenu: NSMenu?
     private var pendingSingleClickWorkItem: DispatchWorkItem?
     private var lastDisplayedVolume: Int?
     private var lastDisplayedMaxVolume: Int?
@@ -77,7 +78,7 @@ class StatusBarController: NSObject, ObservableObject, NSWindowDelegate {
         if let button = statusItem?.button {
             button.action = #selector(statusItemClicked)
             button.target = self
-            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+            button.sendAction(on: [.leftMouseUp, .rightMouseDown])
         }
     }
 
@@ -139,14 +140,21 @@ class StatusBarController: NSObject, ObservableObject, NSWindowDelegate {
 
             guard shouldHandle else { return event }
 
+            // When the CGEvent tap is active it owns scroll-to-volume handling for all
+            // supported contexts, using the original pre-reversal event. Keep this
+            // NSEvent path as a fallback for the no-permission/no-tap case.
+            if self.eventInterceptor != nil {
+                return event
+            }
+
+            // 只有对应设备的"拦截"开启时才吞掉事件。
+            let shouldIntercept = isTrackpad ? DisplayManager.shared.trackpadDisableSystemScroll : DisplayManager.shared.mouseDisableSystemScroll
+            let scrollEventResult: NSEvent? = shouldIntercept ? nil : event
+
             let now = ProcessInfo.processInfo.systemUptime
             let delta = event.scrollingDeltaY
 
-            // 自然滚动补偿。如果 CGEvent tap 已经反转了鼠标滚轮（reverseMouseScroll 开启），
-            // 则跳过此补偿，避免双重反转导致方向错误
-            let shouldInvert = event.isDirectionInvertedFromDevice
-            let cgEventAlreadyReversed = !isTrackpad && DisplayManager.shared.reverseMouseScroll
-            let adjustedDelta = (shouldInvert && !cgEventAlreadyReversed) ? -delta : delta
+            let adjustedDelta = self.physicalScrollDelta(from: event, rawDelta: delta, isTrackpad: isTrackpad)
 
             var volumeChange = 0
 
@@ -162,26 +170,25 @@ class StatusBarController: NSObject, ObservableObject, NSWindowDelegate {
                     volumeChange = direction * DisplayManager.shared.trackpadVolumeStep.rawValue
                     scrollAccumulator = 0  // 重置累积
                 } else {
-                    return nil  // 还未达到阈值，不调节
+                    return scrollEventResult  // 还未达到阈值，不调节
                 }
             } else {
                 // 鼠标：直接响应
-                guard abs(adjustedDelta) > 0.1 else { return nil }
+                guard abs(adjustedDelta) > 0.1 else { return scrollEventResult }
 
                 // 最小节流：30ms，避免过快触发
-                guard now - self.lastScrollTime >= 0.03 else { return nil }
+                guard now - self.lastScrollTime >= 0.03 else { return scrollEventResult }
 
                 let direction = adjustedDelta > 0 ? 1 : -1
                 volumeChange = direction * DisplayManager.shared.mouseVolumeStep.rawValue
             }
 
             self.lastScrollTime = now
+            DisplayManager.shared.updateActiveDisplay()
             DisplayManager.shared.adjustVolume(by: volumeChange)
             self.updateIcon()
 
-            // 只有对应设备的"拦截"开启时才吞掉事件
-            let shouldIntercept = isTrackpad ? DisplayManager.shared.trackpadDisableSystemScroll : DisplayManager.shared.mouseDisableSystemScroll
-            return shouldIntercept ? nil : event
+            return scrollEventResult
         }
         eventMonitor?.start()
     }
@@ -192,10 +199,12 @@ class StatusBarController: NSObject, ObservableObject, NSWindowDelegate {
         let needsInterceptor = DisplayManager.shared.mouseDisableSystemScroll || DisplayManager.shared.trackpadDisableSystemScroll || DisplayManager.shared.reverseMouseScroll
 
         if needsInterceptor {
-            eventInterceptor?.stop()
-            eventInterceptor = nil
-            eventInterceptor = EventInterceptor()
-            eventInterceptor?.start()
+            if eventInterceptor == nil {
+                let interceptor = EventInterceptor()
+                eventInterceptor = interceptor.start() ? interceptor : nil
+            } else {
+                NotificationCenter.default.post(name: NSNotification.Name("RefreshInterceptorSettings"), object: nil)
+            }
         } else {
             eventInterceptor?.stop()
             eventInterceptor = nil
@@ -252,10 +261,16 @@ class StatusBarController: NSObject, ObservableObject, NSWindowDelegate {
         return false
     }
 
+    private func physicalScrollDelta(from event: NSEvent, rawDelta: Double, isTrackpad: Bool) -> Double {
+        // 音量调节始终按物理滚轮方向计算：向上加音量，向下减音量。
+        // reverseMouseScroll 只改变系统滚动方向，不应该反过来影响音量方向。
+        return event.isDirectionInvertedFromDevice ? -rawDelta : rawDelta
+    }
+
     @objc private func statusItemClicked() {
         guard let event = NSApp.currentEvent else { return }
 
-        if event.type == .rightMouseUp {
+        if event.type == .rightMouseDown || event.type == .rightMouseUp {
             pendingSingleClickWorkItem?.cancel()
             pendingSingleClickWorkItem = nil
             showMenu()
@@ -333,6 +348,7 @@ class StatusBarController: NSObject, ObservableObject, NSWindowDelegate {
 
     private func showMenu() {
         let menu = NSMenu()
+        menu.delegate = self
 
         let toggleItem = NSMenuItem(title: L10n.enableApp, action: #selector(toggleEnabled), keyEquivalent: "")
         toggleItem.target = self
@@ -351,9 +367,16 @@ class StatusBarController: NSObject, ObservableObject, NSWindowDelegate {
         quitItem.target = self
         menu.addItem(quitItem)
 
+        statusMenu = menu
         statusItem?.menu = menu
         statusItem?.button?.performClick(nil)
-        statusItem?.menu = nil
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        if menu === statusMenu {
+            statusItem?.menu = nil
+            statusMenu = nil
+        }
     }
 
     @objc private func toggleEnabled() {
@@ -379,7 +402,7 @@ class StatusBarController: NSObject, ObservableObject, NSWindowDelegate {
             if self.settingsWindow == nil {
                 let contentView = SettingsView()
                 let window = NSWindow(
-                    contentRect: NSRect(x: 0, y: 0, width: 390, height: 440),
+                    contentRect: NSRect(x: 0, y: 0, width: 390, height: 455),
                     styleMask: [.titled, .closable, .miniaturizable],
                     backing: .buffered,
                     defer: false

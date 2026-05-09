@@ -64,16 +64,15 @@ sleep 1
          set bounds of container window to {120, 120, 1080, 660}
          set theViewOptions to the icon view options of container window
          set arrangement of theViewOptions to not arranged
-         set icon size of theViewOptions to 112
-         set text size of theViewOptions to 16
+         set icon size of theViewOptions to 128
+         set text size of theViewOptions to 14
          if exists file ".background:$BACKGROUND_NAME" of container window then
              set background picture of theViewOptions to file ".background:$BACKGROUND_NAME"
          end if
-         set position of item "$APP_NAME.app" of container window to {200, 290}
-         set position of item "Applications" of container window to {760, 290}
+         set position of item "$APP_NAME.app" of container window to {200, 260}
+         set position of item "Applications" of container window to {760, 260}
          close
          open
-         update without registering applications
          delay 1
      end tell
  end tell
