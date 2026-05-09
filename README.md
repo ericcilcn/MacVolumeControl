@@ -40,6 +40,8 @@
 
 也可以从 [Releases](https://github.com/ericcilcn/Rolume/releases) 页面查看最新版本。
 
+完整更新内容见 [CHANGELOG.md](CHANGELOG.md)。
+
 `Rolume 1.1` 的 SHA-256：
 
 ```text
