@@ -106,9 +106,18 @@ class EventInterceptor {
         }
     }
 
-    func start() -> Bool {
+    static func hasAccessibilityPermission() -> Bool {
+        AXIsProcessTrusted()
+    }
+
+    @discardableResult
+    static func requestAccessibilityPermission() -> Bool {
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true]
-        let accessEnabled = AXIsProcessTrustedWithOptions(options as CFDictionary)
+        return AXIsProcessTrustedWithOptions(options as CFDictionary)
+    }
+
+    func start() -> Bool {
+        let accessEnabled = Self.hasAccessibilityPermission()
 
         if !accessEnabled {
             #if DEBUG

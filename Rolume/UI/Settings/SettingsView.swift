@@ -51,6 +51,10 @@ struct SettingsView: View {
     @State private var showFAQ = false
     @State private var showExclusionSheet = false
     @State private var showResetAlert = false
+    @State private var showAccessibilityRestartAlert = false
+    @State private var isWaitingForAccessibilityPermission = false
+    @State private var accessibilityPermissionCheckTimer: Timer?
+    @State private var accessibilityPermissionMonitorDeadline: TimeInterval = 0
 	
     var body: some View {
         VStack(spacing: 0) {
@@ -83,6 +87,17 @@ struct SettingsView: View {
                 .onChange(of: excludedApps) {
                     displayManager.reversalExcludedApps = excludedApps
                 }
+        }
+        .alert(L10n.accessibilityRestartTitle, isPresented: $showAccessibilityRestartAlert) {
+            Button(L10n.quitAndReopen) {
+                relaunchApp()
+            }
+            Button(L10n.later, role: .cancel) {}
+        } message: {
+            Text(L10n.accessibilityRestartMessage)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            checkAccessibilityPermissionAfterRequest()
         }
     }
 
@@ -159,7 +174,10 @@ struct SettingsView: View {
 
             SwitchRow(label: L10n.disableSystemScroll, isOn: $mouseDisableSystemScroll)
                 .disabled(!mouseScrollWithModifier)
-                .onChange(of: mouseDisableSystemScroll) { displayManager.mouseDisableSystemScroll = mouseDisableSystemScroll }
+                .onChange(of: mouseDisableSystemScroll) {
+                    displayManager.mouseDisableSystemScroll = mouseDisableSystemScroll
+                    requestAccessibilityPermissionIfNeeded(for: mouseDisableSystemScroll)
+                }
                 .padding(.leading, 20)
             HStack {
                 Text(L10n.modifierKey); Spacer()
@@ -175,7 +193,10 @@ struct SettingsView: View {
             Divider()
             VStack(alignment: .leading, spacing: 6) {
                 SwitchRow(label: L10n.reverseMouseScroll, isOn: $reverseMouseScroll)
-                    .onChange(of: reverseMouseScroll) { displayManager.reverseMouseScroll = reverseMouseScroll }
+                    .onChange(of: reverseMouseScroll) {
+                        displayManager.reverseMouseScroll = reverseMouseScroll
+                        requestAccessibilityPermissionIfNeeded(for: reverseMouseScroll)
+                    }
                 HStack {
                     Button(L10n.manageExclusions) { showExclusionSheet = true }
                         .buttonStyle(.link)
@@ -210,7 +231,10 @@ struct SettingsView: View {
 
             SwitchRow(label: L10n.disableSystemSwipe, isOn: $trackpadDisableSystemScroll)
                 .disabled(!trackpadScrollWithModifier)
-                .onChange(of: trackpadDisableSystemScroll) { displayManager.trackpadDisableSystemScroll = trackpadDisableSystemScroll }
+                .onChange(of: trackpadDisableSystemScroll) {
+                    displayManager.trackpadDisableSystemScroll = trackpadDisableSystemScroll
+                    requestAccessibilityPermissionIfNeeded(for: trackpadDisableSystemScroll)
+                }
                 .padding(.leading, 20)
             HStack {
                 Text(L10n.modifierKey); Spacer()
@@ -346,6 +370,69 @@ struct SettingsView: View {
 
     private var sponsorURLString: String {
         languageManager.current == .chinese ? "https://ifdian.net/a/Rolume" : "https://ko-fi.com/rolume"
+    }
+
+    private var isAnyAccessibilityFeatureEnabled: Bool {
+        reverseMouseScroll || mouseDisableSystemScroll || trackpadDisableSystemScroll
+    }
+
+    private func requestAccessibilityPermissionIfNeeded(for enabledFeature: Bool) {
+        guard enabledFeature,
+              !isWaitingForAccessibilityPermission,
+              !EventInterceptor.hasAccessibilityPermission()
+        else { return }
+
+        EventInterceptor.requestAccessibilityPermission()
+        startAccessibilityPermissionMonitoring()
+    }
+
+    private func startAccessibilityPermissionMonitoring() {
+        guard !isWaitingForAccessibilityPermission else { return }
+
+        isWaitingForAccessibilityPermission = true
+        accessibilityPermissionMonitorDeadline = ProcessInfo.processInfo.systemUptime + 180
+        accessibilityPermissionCheckTimer?.invalidate()
+        accessibilityPermissionCheckTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
+            DispatchQueue.main.async {
+                checkAccessibilityPermissionAfterRequest()
+            }
+        }
+    }
+
+    private func checkAccessibilityPermissionAfterRequest() {
+        guard isWaitingForAccessibilityPermission else { return }
+
+        if EventInterceptor.hasAccessibilityPermission() {
+            stopAccessibilityPermissionMonitoring()
+            if isAnyAccessibilityFeatureEnabled {
+                showAccessibilityRestartAlert = true
+            }
+            return
+        }
+
+        if ProcessInfo.processInfo.systemUptime > accessibilityPermissionMonitorDeadline {
+            stopAccessibilityPermissionMonitoring()
+        }
+    }
+
+    private func stopAccessibilityPermissionMonitoring() {
+        accessibilityPermissionCheckTimer?.invalidate()
+        accessibilityPermissionCheckTimer = nil
+        isWaitingForAccessibilityPermission = false
+        accessibilityPermissionMonitorDeadline = 0
+    }
+
+    private func relaunchApp() {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = [
+            "-c",
+            "sleep 0.5; /usr/bin/open -n \"$1\"",
+            "relaunch",
+            Bundle.main.bundlePath
+        ]
+        try? process.run()
+        NSApp.terminate(nil)
     }
 
     private func volumeBinding(for active: Display) -> Binding<Double> {

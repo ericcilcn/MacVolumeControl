@@ -65,6 +65,14 @@ struct L10n {
     static var resetDefaults: String  { lang == .chinese ? "恢复默认设置" : "Restore Defaults" }
     static var resetAlertTitle: String { lang == .chinese ? "确认恢复默认设置" : "Restore Default Settings" }
     static var resetAlertMessage: String { lang == .chinese ? "此操作将恢复所有设置为默认值" : "This will restore all settings to defaults" }
+    static var accessibilityRestartTitle: String { lang == .chinese ? "重新打开 Rolume" : "Reopen Rolume" }
+    static var accessibilityRestartMessage: String {
+        lang == .chinese
+            ? "辅助功能权限已开启。请退出并重新打开 Rolume，让滚动拦截和鼠标滚轮反转可靠生效。"
+            : "Accessibility permission is now enabled. Quit and reopen Rolume so scroll interception and mouse wheel reversal work reliably."
+    }
+    static var quitAndReopen: String { lang == .chinese ? "退出并重新打开" : "Quit and Reopen" }
+    static var later: String { lang == .chinese ? "以后" : "Later" }
     static var cancel: String         { lang == .chinese ? "取消" : "Cancel" }
     static var restore: String        { lang == .chinese ? "恢复" : "Restore" }
 
