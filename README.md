@@ -33,10 +33,18 @@
 
 ### 下载安装
 
-1. 从 [Releases](../../releases) 页面下载最新的 `Rolume.dmg`
+1. 下载当前公开测试版：[Rolume 1.1 DMG](https://github.com/ericcilcn/Rolume/releases/download/1.1/Rolume.dmg)
 2. 打开 DMG 文件
 3. 将 Rolume 拖到应用程序文件夹
-4. 首次运行时授予必要的权限
+4. 首次运行时按需授予相关权限
+
+也可以从 [Releases](https://github.com/ericcilcn/Rolume/releases) 页面查看最新版本。
+
+`Rolume 1.1` 的 SHA-256：
+
+```text
+b1a5e6070f506435b2f75b61af0f3ff54c16728d1ddf4c73459568d1df9c8be6
+```
 
 ### 从源码编译
 
@@ -80,7 +88,7 @@ chmod +x scripts/create_dmg.sh
 
 ## ⚠️ 权限说明
 
-- **辅助功能权限**：滚轮反转和"禁用系统原生滚动"功能需要。在 系统设置 → 隐私与安全性 → 辅助功能 中授权
+- **辅助功能权限**：仅在启用鼠标滚轮反转、拦截滚动或拦截滑动时需要。Rolume 会通过 macOS 系统提示引导授权；授权后请按提示重新打开应用。
 
 ## 🛠️ 技术栈
 
@@ -91,11 +99,16 @@ chmod +x scripts/create_dmg.sh
 
 ## 🤝 贡献
 
-欢迎提交 Issue 和 Pull Request！
+欢迎提交 [Issue](https://github.com/ericcilcn/Rolume/issues) 和 Pull Request！
 
 ## 📧 反馈
 
 如有问题或建议，请发送邮件至：Ericcil@163.com
+
+## 💙 支持
+
+- 中文用户：[支持 Rolume](https://ifdian.net/a/Rolume)
+- English users: [Support Rolume](https://ko-fi.com/rolume)
 
 ## 📄 许可证
 
