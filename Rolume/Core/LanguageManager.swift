@@ -77,19 +77,19 @@ struct L10n {
     static var restore: String        { lang == .chinese ? "恢复" : "Restore" }
 
     // FAQ
-    static var faq1: String  { lang == .chinese ? "支持哪些 macOS 版本？" : "Which macOS versions are supported?" }
-    static var faq1a: String { lang == .chinese ? "macOS 14.0 及以上，兼容 Intel 和 Apple Silicon。" : "macOS 14.0 or later, compatible with Intel and Apple Silicon." }
+    static var faq1: String  { lang == .chinese ? "Rolume 会控制什么音量？" : "What volume does Rolume control?" }
+    static var faq1a: String { lang == .chinese ? "Rolume 控制当前选中的设备：系统音频设备使用 CoreAudio，显示器扬声器在可用时使用 DDC/CI。" : "Rolume controls the currently selected device. System audio devices use CoreAudio, while display speakers use DDC/CI when available." }
     static var faq2: String  { lang == .chinese ? "外接显示器音量无法调节？" : "External display volume not working?" }
-    static var faq2a: String { lang == .chinese ? "需要显示器支持 DDC/CI 协议，且通过 DisplayPort 或 HDMI 连接。Apple Silicon 和 Intel Mac 均支持。部分显示器需要在菜单中手动开启 DDC/CI。" : "Your display must support DDC/CI and be connected via DisplayPort or HDMI. Both Apple Silicon and Intel Macs are supported. Some displays require enabling DDC/CI in their OSD menu." }
+    static var faq2a: String { lang == .chinese ? "请确认显示器支持 DDC/CI，并已在显示器菜单中开启。若要控制显示器扬声器，请在 macOS 声音输出中选择该显示器；部分扩展坞或转接器可能不转发 DDC 命令。" : "Make sure the display supports DDC/CI and that it is enabled in the display's OSD menu. To control display speakers, select that display as the macOS sound output. Some docks or adapters may not forward DDC commands." }
     static var faq: String   { lang == .chinese ? "常见问题" : "FAQ" }
-    static var faq3: String  { lang == .chinese ? "鼠标滚轮反转需要什么权限？" : "Does scroll reversal need permissions?" }
-    static var faq3a: String { lang == .chinese ? "需要在 系统设置 → 隐私与安全性 → 辅助功能 中授权本应用。" : "Grant Accessibility permission in System Settings → Privacy & Security → Accessibility." }
-    static var faq4: String  { lang == .chinese ? "可以同时控制多个显示器吗？" : "Can I control multiple displays?" }
-    static var faq4a: String { lang == .chinese ? "支持。通过 EDID 自动匹配每个显示器对应的 DDC 通道，多显示器各自独立控制。" : "Yes. Each display is matched to its DDC channel via EDID, allowing independent control in multi-monitor setups." }
+    static var faq3: String  { lang == .chinese ? "哪些功能需要辅助功能权限？" : "Which features need Accessibility permission?" }
+    static var faq3a: String { lang == .chinese ? "只有鼠标滚轮反转、拦截滚动和拦截滑动需要辅助功能权限。开启相关开关时，Rolume 会使用 macOS 系统权限提示。" : "Only mouse wheel reversal, scroll interception, and swipe interception need Accessibility permission. Rolume uses the native macOS permission prompt when those options are enabled." }
+    static var faq4: String  { lang == .chinese ? "多显示器时会控制哪一个？" : "Which device is controlled with multiple displays?" }
+    static var faq4a: String { lang == .chinese ? "Rolume 会优先控制当前声音输出对应的显示器；没有显示器音频目标时，会根据鼠标所在屏幕或系统音频设备选择当前控制对象。" : "Rolume prioritizes the display that matches the current sound output. If there is no display-audio target, it chooses the active device from the screen under the pointer or the system audio device." }
     static var faq5: String  { lang == .chinese ? "已授权辅助功能权限，功能仍不生效？" : "Granted Accessibility but features still not working?" }
-    static var faq5a: String { lang == .chinese ? "请重启应用，或开关一次相关功能开关即可。" : "Restart the app, or toggle the relevant feature switch off and back on." }
+    static var faq5a: String { lang == .chinese ? "请按提示退出并重新打开 Rolume。若选择“以后”，也可以关闭再打开相关功能开关，让事件拦截器重新启动。" : "Use the prompt to quit and reopen Rolume. If you choose Later, turn the relevant feature off and back on to restart the event interceptor." }
     static var faq6: String  { lang == .chinese ? "滚轮反转和自然滚动之间是什么关系？" : "How does scroll reversal work with natural scrolling?" }
-    static var faq6a: String { lang == .chinese ? "反转仅作用于鼠标，不影响触控板。开启后鼠标滚轮方向与系统「自然滚动」设置解耦，例如你可以在系统设置中保持触控板自然滚动开启，同时让鼠标恢复传统滚动方向。" : "Reversal only affects the mouse, never the trackpad. When enabled, mouse scroll direction is decoupled from the system Natural Scrolling setting — you can keep natural scrolling for your trackpad while reverting the mouse to classic direction." }
+    static var faq6a: String { lang == .chinese ? "反转仅改变鼠标滚轮方向，不改变触控板自然滚动，也不会接管触控板调音量手感，除非你开启了触控板的“拦截滑动”。" : "Reversal only changes mouse wheel direction. It does not change trackpad natural scrolling or take over trackpad volume sensitivity unless Trackpad Intercept Swipe is enabled." }
     // Menu
     static var enableApp: String      { lang == .chinese ? "启用" : "Enable" }
     static var preferences: String    { lang == .chinese ? "偏好设置" : "Preferences" }

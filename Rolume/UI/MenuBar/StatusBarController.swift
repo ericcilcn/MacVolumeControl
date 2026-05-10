@@ -140,10 +140,13 @@ class StatusBarController: NSObject, ObservableObject, NSWindowDelegate, NSMenuD
 
             guard shouldHandle else { return event }
 
-            // When the CGEvent tap is active it owns scroll-to-volume handling for all
-            // supported contexts, using the original pre-reversal event. Keep this
-            // NSEvent path as a fallback for the no-permission/no-tap case.
-            if self.eventInterceptor != nil {
+            // When the CGEvent tap is active, it only owns the device path that
+            // needs HID-level handling. Keep the other device on the NSEvent path
+            // so enabling mouse reversal does not change trackpad sensitivity.
+            let interceptorOwnsCurrentDevice = isTrackpad
+                ? DisplayManager.shared.trackpadDisableSystemScroll
+                : (DisplayManager.shared.mouseDisableSystemScroll || DisplayManager.shared.reverseMouseScroll)
+            if self.eventInterceptor != nil && interceptorOwnsCurrentDevice {
                 return event
             }
 

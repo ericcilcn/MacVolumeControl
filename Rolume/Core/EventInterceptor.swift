@@ -16,33 +16,35 @@ class EventInterceptor {
         return (value as? Bool) ?? (value as? Int == 1)
     }()
 
-    /// Mos 风格的触控板检测：phase 字段比 isContinuous 更可靠，加采样降开销
-    private static var trackpadCheckCount = 0
-    private static var trackpadCheckCache = false
+    private static var logitechOptionsPID: pid_t?
+    private static var lastLogitechOptionsPIDRefresh: TimeInterval = 0
 
     private static func isTrackpadEvent(_ event: CGEvent) -> Bool {
-        trackpadCheckCount += 1
-        if trackpadCheckCount.isMultiple(of: 3) {
-            trackpadCheckCache = false
-            if event.getDoubleValueField(.scrollWheelEventMomentumPhase) != 0.0
-                || event.getDoubleValueField(.scrollWheelEventScrollPhase) != 0.0
-                || event.getDoubleValueField(.scrollWheelEventScrollCount) != 0.0 {
-                trackpadCheckCache = true
-            }
-            if trackpadCheckCache {
-                // Logitech Options 可能注入带 phase 的假事件，检查来源进程
-                if let logiApp = NSRunningApplication.runningApplications(
-                    withBundleIdentifier: "com.logitech.Logi-Options"
-                ).first {
-                    let sourcePID = event.getIntegerValueField(.eventSourceUnixProcessID)
-                    if sourcePID == logiApp.processIdentifier {
-                        trackpadCheckCache = false
-                    }
-                }
-            }
-            trackpadCheckCount = 0
+        let hasTrackpadPhase = event.getDoubleValueField(.scrollWheelEventMomentumPhase) != 0.0
+            || event.getDoubleValueField(.scrollWheelEventScrollPhase) != 0.0
+            || event.getDoubleValueField(.scrollWheelEventScrollCount) != 0.0
+
+        guard hasTrackpadPhase else { return false }
+
+        if isFromLogitechOptions(event) {
+            return false
         }
-        return trackpadCheckCache
+
+        return true
+    }
+
+    private static func isFromLogitechOptions(_ event: CGEvent) -> Bool {
+        let now = ProcessInfo.processInfo.systemUptime
+        if now - lastLogitechOptionsPIDRefresh > 5 {
+            logitechOptionsPID = NSRunningApplication.runningApplications(
+                withBundleIdentifier: "com.logitech.Logi-Options"
+            ).first?.processIdentifier
+            lastLogitechOptionsPIDRefresh = now
+        }
+
+        guard let logitechOptionsPID else { return false }
+        let sourcePID = event.getIntegerValueField(.eventSourceUnixProcessID)
+        return sourcePID == logitechOptionsPID
     }
 
     /// 缓存从 UserDefaults 读取的设置，避免滚轮热路径上反复 I/O
@@ -134,8 +136,6 @@ class EventInterceptor {
         Self.frontmostAppID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? ""
         Self.scrollAccumulator = 0
         Self.lastScrollTime = 0
-        Self.trackpadCheckCount = 0
-        Self.trackpadCheckCache = false
 
         if let observer = Self.frontmostAppObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(observer)
@@ -185,6 +185,28 @@ class EventInterceptor {
         guard s.isEnabled else { return Unmanaged.passRetained(event) }
 
         let isTrackpad = Self.isTrackpadEvent(event)
+        let volumeRawDelta = event.getIntegerValueField(.scrollWheelEventDeltaAxis1)
+
+        // Mouse reversal is the only transformation this tap should apply when
+        // trackpad interception is off; trackpad events are passed through early.
+        if s.reverseMouseScroll && !isTrackpad && !s.excludedApps.contains(frontmostAppID) {
+            let deltaY = event.getIntegerValueField(.scrollWheelEventDeltaAxis1)
+            let deltaX = event.getIntegerValueField(.scrollWheelEventDeltaAxis2)
+            event.setIntegerValueField(.scrollWheelEventDeltaAxis1, value: -deltaY)
+            event.setIntegerValueField(.scrollWheelEventDeltaAxis2, value: -deltaX)
+
+            let pointDeltaY = event.getDoubleValueField(.scrollWheelEventPointDeltaAxis1)
+            let pointDeltaX = event.getDoubleValueField(.scrollWheelEventPointDeltaAxis2)
+            event.setDoubleValueField(.scrollWheelEventPointDeltaAxis1, value: -pointDeltaY)
+            event.setDoubleValueField(.scrollWheelEventPointDeltaAxis2, value: -pointDeltaX)
+        }
+
+        let interceptorOwnsVolume = isTrackpad
+            ? s.trackpadDisableSystemScroll
+            : (s.mouseDisableSystemScroll || s.reverseMouseScroll)
+        guard interceptorOwnsVolume else {
+            return Unmanaged.passRetained(event)
+        }
 
         let flags = event.flags
 
@@ -211,20 +233,6 @@ class EventInterceptor {
                 || (s.mouseScrollWithModifier && isModifierPressed)
         }
         let shouldBlockScroll = isTrackpad ? s.trackpadDisableSystemScroll : s.mouseDisableSystemScroll
-
-        let volumeRawDelta = event.getIntegerValueField(.scrollWheelEventDeltaAxis1)
-
-        if s.reverseMouseScroll && !isTrackpad && !s.excludedApps.contains(frontmostAppID) {
-            let deltaY = event.getIntegerValueField(.scrollWheelEventDeltaAxis1)
-            let deltaX = event.getIntegerValueField(.scrollWheelEventDeltaAxis2)
-            event.setIntegerValueField(.scrollWheelEventDeltaAxis1, value: -deltaY)
-            event.setIntegerValueField(.scrollWheelEventDeltaAxis2, value: -deltaX)
-
-            let pointDeltaY = event.getDoubleValueField(.scrollWheelEventPointDeltaAxis1)
-            let pointDeltaX = event.getDoubleValueField(.scrollWheelEventPointDeltaAxis2)
-            event.setDoubleValueField(.scrollWheelEventPointDeltaAxis1, value: -pointDeltaY)
-            event.setDoubleValueField(.scrollWheelEventPointDeltaAxis2, value: -pointDeltaX)
-        }
 
         if shouldHandle {
             // 音量调节使用反转前的物理滚轮方向，保证向上加音量、向下减音量。

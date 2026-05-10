@@ -7,7 +7,14 @@
 ### 下载
 
 - 下载：[Rolume.dmg](https://github.com/ericcilcn/Rolume/releases/download/1.1/Rolume.dmg)
-- SHA-256：`b1a5e6070f506435b2f75b61af0f3ff54c16728d1ddf4c73459568d1df9c8be6`
+- SHA-256：`1321c68153f2caad5033a998ec83e91d57fe0d0419787299451b749aaee26b26`
+
+### 公开测试修正
+
+- 修复开启鼠标滚轮反转后，触控板滑动调节音量手感变钝的问题
+- 改进触控板事件识别，避免鼠标滚轮反转逻辑接管触控板路径
+- 重写应用内 FAQ，补充 DDC/CI、辅助功能权限、多显示器控制和自然滚动说明
+- 更新发布说明，移除发布页上的第三方创作标记
 
 ### 品牌与项目整理
 
@@ -59,7 +66,7 @@
 - 添加 DMG 背景图
 - 固定 DMG 窗口大小和图标位置
 - 提供拖拽到 Applications 的安装体验
-- 发布 `Rolume 1.1` GitHub pre-release
+- 发布 `Rolume 1.1` GitHub Release
 - 上传 `Rolume.dmg`
 - 补充 SHA-256 校验值
 - 补充 README 下载链接、权限说明和支持项目链接

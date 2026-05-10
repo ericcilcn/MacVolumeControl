@@ -44,7 +44,7 @@ Rolume/
 - Requires Accessibility permission (AXIsProcessTrusted)
 - Started only when needed: reverseMouseScroll=true OR mouseDisableSystemScroll=true OR trackpadDisableSystemScroll=true
 - Uses cached settings (CachedSettings struct) to avoid UserDefaults I/O on hot path
-- Uses phase-based trackpad detection (MomentumPhase/ScrollPhase/ScrollCount, sampled every 3 calls)
+- Uses per-event phase-based trackpad detection (MomentumPhase/ScrollPhase/ScrollCount)
 - Always consumes event after adjusting volume (returns nil) to prevent double-fire with Path A
 
 ## Key Design Decisions
