@@ -9,8 +9,10 @@ class DisplayManager: ObservableObject {
     private let ddcVolumeMaxValue: UInt16 = 100
     private let fallbackDisplayVolume = 25
     private let maxDDCRefreshRetries = 5
+    private let ddcVolumeSyncInterval: TimeInterval = 1.5
     private var pendingDDCRefreshWorkItem: DispatchWorkItem?
     private var ddcRefreshRetryCount = 0
+    private var lastDDCVolumeSyncTime: [CGDirectDisplayID: TimeInterval] = [:]
 
     @Published var displays: [Display] = []
     @Published var activeDisplay: Display?
@@ -500,17 +502,18 @@ class DisplayManager: ObservableObject {
             return
         }
 
-        let newVolume = max(0, min(active.maxVolume, active.currentVolume + delta))
-        guard newVolume != active.currentVolume else { return }
+        let syncedActive = active.isExternal ? syncExternalVolumeIfNeeded(for: active) : active
+        let newVolume = max(0, min(syncedActive.maxVolume, syncedActive.currentVolume + delta))
+        guard newVolume != syncedActive.currentVolume else { return }
 
         #if DEBUG
-        print("🎚️ Adjusting volume: \(active.name) from \(active.currentVolume) to \(newVolume)")
+        print("🎚️ Adjusting volume: \(syncedActive.name) from \(syncedActive.currentVolume) to \(newVolume)")
         #endif
 
         var success = false
-        if active.isExternal {
-            let ddcValue = ddcValue(forPercent: newVolume, display: active)
-            success = DDCManager.shared.setVolume(ddcValue, for: active.id)
+        if syncedActive.isExternal {
+            let ddcValue = ddcValue(forPercent: newVolume, display: syncedActive)
+            success = DDCManager.shared.setVolume(ddcValue, for: syncedActive.id)
             #if DEBUG
             print("  DDC result: \(success ? "✅" : "❌"), raw value: \(ddcValue)")
             #endif
@@ -522,29 +525,80 @@ class DisplayManager: ObservableObject {
         }
 
         if success {
-            if let index = displays.firstIndex(where: { $0.id == active.id }) {
+            if let index = displays.firstIndex(where: { $0.id == syncedActive.id }) {
                 displays[index].currentVolume = newVolume
                 displays[index].maxVolume = 100
-                displays[index].isDDCAvailable = active.isExternal ? true : displays[index].isDDCAvailable
+                displays[index].isDDCAvailable = syncedActive.isExternal ? true : displays[index].isDDCAvailable
                 displays[index].isMuted = false
                 activeDisplay = displays[index]
 
                 // 保存音量到 UserDefaults
-                saveVolume(newVolume, for: active.id)
+                saveVolume(newVolume, for: syncedActive.id)
+                markDDCVolumeSynced(for: syncedActive.id)
 
                 // 显示 OSD（如果启用）
                 if showOSD {
                     OSDManager.shared.showOSD(
                         volume: newVolume,
-                        maxVolume: active.maxVolume,
-                        isExternal: active.isExternal,
-                        displayID: active.id
+                        maxVolume: syncedActive.maxVolume,
+                        isExternal: syncedActive.isExternal,
+                        displayID: syncedActive.id
                     )
                 }
 
                 NotificationCenter.default.post(name: NSNotification.Name("DisplayChanged"), object: nil)
             }
         }
+    }
+
+    private func syncExternalVolumeIfNeeded(for display: Display) -> Display {
+        guard display.isExternal else { return display }
+
+        let now = ProcessInfo.processInfo.systemUptime
+        if let lastSync = lastDDCVolumeSyncTime[display.id],
+           now - lastSync < ddcVolumeSyncInterval {
+            return display
+        }
+
+        markDDCVolumeSynced(for: display.id)
+
+        guard let result = DDCManager.shared.readVolume(for: display.id) else {
+            #if DEBUG
+            print("⚠️ DDC volume sync failed for \(display.name), using cached \(display.currentVolume)%")
+            #endif
+            return display
+        }
+
+        var syncedDisplay = display
+        syncedDisplay.currentVolume = safeVolumePercent(
+            current: result.currentValue,
+            max: result.maxValue,
+            displayID: display.id
+        )
+        syncedDisplay.maxVolume = 100
+        syncedDisplay.ddcMaxValue = ddcVolumeMaxValue
+        syncedDisplay.isDDCAvailable = true
+        syncedDisplay.isMuted = syncedDisplay.currentVolume == 0
+
+        if let index = displays.firstIndex(where: { $0.id == display.id }) {
+            let previousVolume = displays[index].currentVolume
+            displays[index] = syncedDisplay
+            activeDisplay = syncedDisplay
+
+            if previousVolume != syncedDisplay.currentVolume {
+                saveVolume(syncedDisplay.currentVolume, for: display.id)
+                NotificationCenter.default.post(name: NSNotification.Name("DisplayChanged"), object: nil)
+                #if DEBUG
+                print("🔄 Synced DDC volume for \(display.name): \(previousVolume)% → \(syncedDisplay.currentVolume)%")
+                #endif
+            }
+        }
+
+        return syncedDisplay
+    }
+
+    private func markDDCVolumeSynced(for displayID: CGDirectDisplayID) {
+        lastDDCVolumeSyncTime[displayID] = ProcessInfo.processInfo.systemUptime
     }
 
     private func saveVolume(_ volume: Int, for displayID: CGDirectDisplayID) {
