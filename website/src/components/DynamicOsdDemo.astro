@@ -3,7 +3,7 @@ const base = import.meta.env.BASE_URL;
 const withBase = (path: string) => `${base}${path.replace(/^\/+/, "")}`;
 ---
 
-<div class="dynamic-osd-demo" data-dynamic-osd data-touching="false" style="--osd-volume: 50%; --osd-mobile-y: 0px;" aria-label="Rolume OSD volume preview">
+<div class="dynamic-osd-demo" data-dynamic-osd style="--osd-volume: 0%;" aria-label="Rolume OSD volume preview">
   <div class="dynamic-osd" aria-live="polite">
     <div class="osd-title">R27U81</div>
     <div class="osd-row">
@@ -13,7 +13,7 @@ const withBase = (path: string) => `${base}${path.replace(/^\/+/, "")}`;
       </div>
       <img class="osd-speaker osd-speaker-loud" src={withBase("/osd-icons/speaker-wave-3.svg")} alt="" decoding="async" draggable="false" />
     </div>
-    <span class="sr-only"><span data-osd-label>50</span>%</span>
+    <span class="sr-only"><span data-osd-label>0</span>%</span>
   </div>
 </div>
 
@@ -22,164 +22,29 @@ const withBase = (path: string) => `${base}${path.replace(/^\/+/, "")}`;
     const demos = document.querySelectorAll("[data-dynamic-osd]");
 
     demos.forEach((root) => {
-      let volume = 50;
-      let visible = false;
-      let raf = 0;
-      let lastStepAt = 0;
-      let lastDirection = 0;
-      let lastWheelAt = 0;
-      let trackpadAccumulator = 0;
-      let lastTrackpadAt = 0;
-      let lastTrackpadStepAt = 0;
-      let lastTrackpadDirection = 0;
-      let modeLockedUntil = 0;
-      let inputMode = "mouse";
-      let touchLastY = 0;
-      let touchEndTimer = 0;
-      const touchPreview = window.matchMedia("(hover: none) and (pointer: coarse)");
+      let volume = 0;
       const label = root.querySelector("[data-osd-label]");
-
-      const observer = new IntersectionObserver(
-        (entries) => {
-          visible = entries.some((entry) => entry.isIntersecting);
-        },
-        { threshold: 0.2 },
-      );
-
-      observer.observe(root);
 
       const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
-      const detectInputMode = (event, x, y, now) => {
-        if (now < modeLockedUntil) return inputMode;
-
-        const absX = Math.abs(x);
-        const absY = Math.abs(y);
-        const fractional = Math.abs(x % 1) > 0.05 || Math.abs(y % 1) > 0.05;
-        const highFrequency = lastWheelAt > 0 && now - lastWheelAt < 24;
-        const horizontal = absX > 2;
-        const smallSmoothStep = absY > 0 && absY < 42;
-        const lineOrPageMode = event.deltaMode === 1 || event.deltaMode === 2;
-        const stepped = absY >= 80 || Math.abs(absY % 40) < 0.6 || Math.abs(absY % 120) < 0.6;
-        const score =
-          (fractional ? 2 : 0) +
-          (highFrequency ? 1 : 0) +
-          (horizontal ? 2 : 0) +
-          (smallSmoothStep ? 1 : 0) -
-          (lineOrPageMode ? 3 : 0) -
-          (stepped ? 1 : 0);
-
-        inputMode = score >= 1 ? "trackpad" : "mouse";
-        modeLockedUntil = now + 180;
-        return inputMode;
-      };
-
       const render = () => {
-        if (raf) return;
-        raf = requestAnimationFrame(() => {
-          raf = 0;
-          const rounded = Math.round(volume);
-          root.style.setProperty("--osd-volume", `${rounded}%`);
-          const mobileY = touchPreview.matches ? ((rounded / 100) - 0.5) * 116 : 0;
-          root.style.setProperty("--osd-mobile-y", `${mobileY}px`);
-          if (label) label.textContent = String(rounded);
-        });
+        const rounded = Math.round(volume);
+        root.style.setProperty("--osd-volume", `${rounded}%`);
+        if (label) label.textContent = String(rounded);
       };
 
-      const handleWheel = (event) => {
-        if (!visible) return;
-        const dominantDelta = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX;
-        if (Math.abs(dominantDelta) < 0.01) return;
-
-        const now = performance.now();
-        const mode = detectInputMode(event, event.deltaX, event.deltaY, now);
-        const direction = mode === "trackpad" ? (dominantDelta > 0 ? 1 : -1) : dominantDelta < 0 ? 1 : -1;
-
-        if (mode === "trackpad") {
-          const newTrackpadGesture = direction !== lastTrackpadDirection || now - lastTrackpadAt > 240;
-          if (newTrackpadGesture) {
-            trackpadAccumulator = 0;
-          }
-
-          trackpadAccumulator += Math.min(Math.abs(dominantDelta), 12);
-          lastTrackpadAt = now;
-          lastTrackpadDirection = direction;
-          lastWheelAt = now;
-
-          const trackpadThreshold = newTrackpadGesture || now - lastTrackpadStepAt > 240 ? 22 : 42;
-          if (trackpadAccumulator < trackpadThreshold) return;
-          if (!newTrackpadGesture && now - lastTrackpadStepAt < 120) {
-            trackpadAccumulator = trackpadThreshold;
-            return;
-          }
-
-          trackpadAccumulator = 0;
-          volume = clamp(volume + direction * 5, 0, 100);
-          lastTrackpadStepAt = now;
-          lastStepAt = now;
-          lastDirection = direction;
-          render();
-          return;
-        }
-
-        if (direction === lastDirection && now - lastStepAt < 35) return;
-
-        volume = clamp(volume + direction * 5, 0, 100);
-        lastStepAt = now;
-        lastDirection = direction;
-        lastWheelAt = now;
+      const updateFromScroll = () => {
+        const rect = root.getBoundingClientRect();
+        const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 1;
+        const progress = clamp((viewportHeight - rect.top) / viewportHeight, 0, 1);
+        volume = progress * 100;
         render();
       };
 
-      window.addEventListener("wheel", handleWheel, { passive: true });
+      window.addEventListener("scroll", updateFromScroll, { passive: true });
+      window.addEventListener("resize", updateFromScroll, { passive: true });
 
-      root.addEventListener(
-        "touchstart",
-        (event) => {
-          if (!touchPreview.matches || event.touches.length !== 1) return;
-          touchLastY = event.touches[0].clientY;
-          root.dataset.touching = "true";
-          window.clearTimeout(touchEndTimer);
-        },
-        { passive: true },
-      );
-
-      root.addEventListener(
-        "touchmove",
-        (event) => {
-          if (!touchPreview.matches || event.touches.length !== 1) return;
-          event.preventDefault();
-          const currentY = event.touches[0].clientY;
-          const deltaY = touchLastY - currentY;
-          touchLastY = currentY;
-          if (Math.abs(deltaY) < 0.5) return;
-          volume = clamp(volume + deltaY * 0.46, 0, 100);
-          render();
-        },
-        { passive: false },
-      );
-
-      root.addEventListener(
-        "touchend",
-        () => {
-          if (!touchPreview.matches) return;
-          window.clearTimeout(touchEndTimer);
-          touchEndTimer = window.setTimeout(() => {
-            root.dataset.touching = "false";
-          }, 520);
-        },
-        { passive: true },
-      );
-
-      root.addEventListener(
-        "touchcancel",
-        () => {
-          root.dataset.touching = "false";
-        },
-        { passive: true },
-      );
-
-      render();
+      updateFromScroll();
     });
   })();
 </script>
@@ -206,7 +71,7 @@ const withBase = (path: string) => `${base}${path.replace(/^\/+/, "")}`;
     padding: 24px 38px 25px;
     --osd-hover-y: 0px;
     --osd-scale: 1;
-    transform: translateY(calc(var(--osd-mobile-y, 0px) + var(--osd-hover-y))) scale(var(--osd-scale));
+    transform: translateY(var(--osd-hover-y)) scale(var(--osd-scale));
     transform-origin: center;
     transition:
       transform 180ms ease,
@@ -215,8 +80,7 @@ const withBase = (path: string) => `${base}${path.replace(/^\/+/, "")}`;
   }
 
   .dynamic-osd-demo:hover .dynamic-osd,
-  .dynamic-osd-demo:focus-within .dynamic-osd,
-  .dynamic-osd-demo[data-touching="true"] .dynamic-osd {
+  .dynamic-osd-demo:focus-within .dynamic-osd {
     box-shadow:
       inset 0 1px 0 rgba(255, 255, 255, 0.24),
       0 32px 52px rgba(11, 13, 18, 0.22);
@@ -283,8 +147,7 @@ const withBase = (path: string) => `${base}${path.replace(/^\/+/, "")}`;
   @media (max-width: 640px) {
     .dynamic-osd-demo {
       width: min(100%, 430px);
-      min-height: 274px;
-      touch-action: pan-x;
+      min-height: 160px;
     }
 
     .dynamic-osd {
@@ -310,26 +173,13 @@ const withBase = (path: string) => `${base}${path.replace(/^\/+/, "")}`;
     }
   }
 
-  @media (hover: none) and (pointer: coarse) {
-    .dynamic-osd-demo:hover .dynamic-osd {
-      --osd-hover-y: 0px;
-      --osd-scale: 1;
-    }
-
-    .dynamic-osd-demo[data-touching="true"] .dynamic-osd {
-      --osd-hover-y: -4px;
-      --osd-scale: 1.01;
-    }
-  }
-
   @media (prefers-reduced-motion: reduce) {
     .dynamic-osd {
       transition: none;
     }
 
     .dynamic-osd-demo:hover .dynamic-osd,
-    .dynamic-osd-demo:focus-within .dynamic-osd,
-    .dynamic-osd-demo[data-touching="true"] .dynamic-osd {
+    .dynamic-osd-demo:focus-within .dynamic-osd {
       --osd-hover-y: 0px;
       --osd-scale: 1;
     }

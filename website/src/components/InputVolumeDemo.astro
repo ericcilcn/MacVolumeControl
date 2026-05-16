@@ -101,6 +101,7 @@ const withBase = (path: string) => `${base}${path.replace(/^\/+/, "")}`;
       let lastTrackpadDirection = 0;
       let modeLockedUntil = 0;
       let inputMode = "mouse";
+      const scheduleFrame = window.requestAnimationFrame || ((callback) => window.setTimeout(callback, 16));
 
       const observer = new IntersectionObserver(
         (entries) => {
@@ -139,7 +140,7 @@ const withBase = (path: string) => `${base}${path.replace(/^\/+/, "")}`;
 
       const render = () => {
         if (raf) return;
-        raf = requestAnimationFrame(() => {
+        raf = scheduleFrame(() => {
           raf = 0;
           root.style.setProperty("--icon-level", String(level));
           root.style.setProperty("--level-ratio", String(maxLevel === 0 ? 1 : level / maxLevel));
