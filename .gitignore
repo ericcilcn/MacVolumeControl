@@ -41,3 +41,11 @@ DerivedData/
 Network Trash Folder
 Temporary Items
 .apdisk
+
+# Website
+website/.astro/
+website/node_modules/
+website/dist/
+website/public/icon-layers/
+website/public/screenshots/menu-bar.png
+website/public/screenshots/volume-osd.png

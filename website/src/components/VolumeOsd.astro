@@ -1,0 +1,102 @@
+<div class="volume-osd" aria-live="polite">
+  <div class="osd-title">R27U81</div>
+  <div class="osd-row">
+    <svg class="osd-speaker osd-speaker-small" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M4 9.5h4.5L15 4v16l-6.5-5.5H4z"></path>
+    </svg>
+    <div class="osd-track" aria-hidden="true">
+      <span class="osd-fill"></span>
+    </div>
+    <svg class="osd-speaker" viewBox="0 0 32 24" aria-hidden="true">
+      <path d="M3 9.5h5L15 4v16L8 14.5H3z"></path>
+      <path d="M19 8.2a6.2 6.2 0 0 1 0 7.6"></path>
+      <path d="M22.5 5.4a10.2 10.2 0 0 1 0 13.2"></path>
+      <path d="M26 2.8a14.2 14.2 0 0 1 0 18.4"></path>
+    </svg>
+  </div>
+  <div class="osd-percent"><span data-volume-label>42</span>%</div>
+</div>
+
+<style>
+  .volume-osd {
+    width: min(100%, 380px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 32px;
+    background: rgba(128, 128, 128, 0.9);
+    box-shadow: 0 18px 38px rgba(11, 13, 18, 0.24);
+    color: white;
+    padding: 18px 24px 20px;
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+    transition:
+      opacity 180ms ease,
+      transform 180ms ease;
+  }
+
+  :global(.input-demo[data-active="true"]) .volume-osd {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+
+  .osd-title {
+    font-size: 1.05rem;
+    font-weight: 750;
+    line-height: 1;
+    letter-spacing: 0;
+  }
+
+  .osd-row {
+    display: grid;
+    grid-template-columns: 32px 1fr 46px;
+    gap: 16px;
+    align-items: center;
+    margin-top: 18px;
+  }
+
+  .osd-track {
+    height: 8px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.34);
+  }
+
+  .osd-fill {
+    display: block;
+    width: var(--volume, 42%);
+    height: 100%;
+    border-radius: inherit;
+    background: white;
+    transition: width 100ms linear;
+  }
+
+  .osd-speaker {
+    width: 44px;
+    height: 32px;
+    fill: white;
+    stroke: white;
+    stroke-width: 2.3;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .osd-speaker-small {
+    width: 32px;
+  }
+
+  .osd-speaker path:first-child {
+    stroke: none;
+  }
+
+  .osd-percent {
+    height: 0;
+    overflow: hidden;
+    opacity: 0;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .volume-osd,
+    .osd-fill {
+      transition: none;
+    }
+  }
+</style>

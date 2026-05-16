@@ -1,0 +1,19 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+
+const base = import.meta.env.BASE_URL;
+const withBase = (path: string) => `${base}${path.replace(/^\/+/, "")}`;
+---
+
+<BaseLayout title="页面不存在" description="The requested Rolume page could not be found.">
+  <section class="mx-auto max-w-3xl px-5 py-24">
+    <p class="text-sm font-semibold uppercase tracking-[0.12em] text-[color:var(--muted)]">404</p>
+    <h1 class="mt-3 text-5xl font-semibold tracking-normal text-[color:var(--ink)]">页面不存在</h1>
+    <p class="mt-5 text-lg leading-8 text-[color:var(--muted)]">
+      这个地址没有对应的 Rolume 官网页面。
+    </p>
+    <a class="mt-8 inline-flex rounded-[8px] bg-[color:var(--ink)] px-5 py-3 text-sm font-semibold text-white" href={withBase("/")}>
+      回到首页
+    </a>
+  </section>
+</BaseLayout>

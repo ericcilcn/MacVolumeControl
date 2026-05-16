@@ -1,0 +1,208 @@
+---
+type StoryImage = {
+  src: string;
+  alt: string;
+};
+
+interface Props {
+  eyebrow: string;
+  title: string;
+  body: string | string[];
+  points?: string[];
+  image?: StoryImage | StoryImage[];
+  reverse?: boolean;
+}
+
+const { eyebrow, title, body, points = [], image, reverse = false } = Astro.props;
+const base = import.meta.env.BASE_URL;
+const withBase = (path: string) => `${base}${path.replace(/^\/+/, "")}`;
+const images = image ? (Array.isArray(image) ? image : [image]) : [];
+const bodyParagraphs = Array.isArray(body) ? body : [body];
+const hasMediaSlot = await Astro.slots.has("media");
+---
+
+<section class:list={["screenshot-story", reverse && "is-reverse"]}>
+  <div class="story-media" data-count={images.length}>
+    {
+      hasMediaSlot ? (
+        <slot name="media" />
+      ) : (
+        images.map((item) => (
+          <figure class="screenshot-frame">
+            <img src={withBase(item.src)} alt={item.alt} loading="eager" decoding="async" />
+          </figure>
+        ))
+      )
+    }
+  </div>
+  <div class="story-copy">
+    <p class="story-eyebrow">{eyebrow}</p>
+    <h3>{title}</h3>
+    {bodyParagraphs.map((paragraph) => <p>{paragraph}</p>)}
+    {
+      points.length > 0 && (
+        <ul>
+          {points.map((point) => (
+            <li>{point}</li>
+          ))}
+        </ul>
+      )
+    }
+  </div>
+</section>
+
+<style>
+  .screenshot-story {
+    display: grid;
+    grid-template-columns: minmax(0, 1.12fr) minmax(280px, 0.88fr);
+    align-items: center;
+    gap: clamp(32px, 6vw, 84px);
+    padding: clamp(44px, 7vw, 84px) 0;
+    border-top: 1px solid var(--line);
+  }
+
+  .screenshot-story:first-child {
+    border-top: 0;
+    padding-top: 0;
+  }
+
+  .screenshot-story.is-reverse {
+    grid-template-columns: minmax(280px, 0.88fr) minmax(0, 1.12fr);
+  }
+
+  .screenshot-story.is-reverse .story-media {
+    order: 2;
+  }
+
+  .story-media {
+    display: grid;
+    justify-items: center;
+    gap: 18px;
+    min-width: 0;
+  }
+
+  .story-media[data-count="2"] {
+    align-content: center;
+  }
+
+  .screenshot-frame {
+    margin: 0;
+    width: min(66%, 340px);
+    overflow: visible;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .story-media[data-count="2"] .screenshot-frame {
+    width: min(74%, 360px);
+  }
+
+  .screenshot-frame img {
+    display: block;
+    width: 100%;
+    height: auto;
+    filter:
+      drop-shadow(0 26px 38px rgba(18, 20, 23, 0.2))
+      drop-shadow(0 8px 14px rgba(18, 20, 23, 0.12));
+    transform: translateY(0) scale(1);
+    transform-origin: center;
+    transition:
+      transform 180ms ease,
+      filter 180ms ease;
+    will-change: transform;
+  }
+
+  .screenshot-frame:hover img {
+    filter:
+      drop-shadow(0 32px 44px rgba(18, 20, 23, 0.22))
+      drop-shadow(0 12px 18px rgba(18, 20, 23, 0.14));
+    transform: translateY(-6px) scale(1.018);
+  }
+
+  .story-copy {
+    max-width: 440px;
+  }
+
+  .story-eyebrow {
+    margin: 0 0 14px;
+    color: var(--blue);
+    font-size: 0.78rem;
+    font-weight: 760;
+    letter-spacing: 0;
+  }
+
+  .story-copy h3 {
+    margin: 0;
+    color: var(--ink);
+    font-size: clamp(2rem, 4vw, 3.45rem);
+    font-weight: 760;
+    letter-spacing: 0;
+    line-height: 1.05;
+  }
+
+  .story-copy p:not(.story-eyebrow) {
+    margin: 20px 0 0;
+    color: var(--muted);
+    font-size: 1.05rem;
+    line-height: 1.85;
+  }
+
+  .story-copy ul {
+    display: grid;
+    gap: 12px;
+    margin: 24px 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .story-copy li {
+    position: relative;
+    padding-left: 20px;
+    color: var(--muted);
+    font-size: 0.98rem;
+    line-height: 1.7;
+  }
+
+  .story-copy li::before {
+    content: "";
+    position: absolute;
+    top: 0.74em;
+    left: 0;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--blue);
+  }
+
+  @media (max-width: 860px) {
+    .screenshot-story,
+    .screenshot-story.is-reverse {
+      grid-template-columns: 1fr;
+      gap: 28px;
+    }
+
+    .screenshot-story.is-reverse .story-media {
+      order: 0;
+    }
+
+    .story-copy {
+      max-width: none;
+    }
+
+    .screenshot-frame {
+      width: min(72%, 340px);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .screenshot-frame img {
+      transition: none;
+    }
+
+    .screenshot-frame:hover img {
+      transform: none;
+    }
+  }
+</style>

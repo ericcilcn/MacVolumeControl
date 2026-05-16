@@ -1,0 +1,97 @@
+---
+import "../styles/global.css";
+import { SITE } from "../data/site";
+
+interface Props {
+  title?: string;
+  description?: string;
+  frontmatter?: {
+    title?: string;
+    description?: string;
+  };
+}
+
+const frontmatter = Astro.props.frontmatter ?? {};
+const title = Astro.props.title ?? frontmatter.title ?? SITE.name;
+const description = Astro.props.description ?? frontmatter.description ?? SITE.description;
+const pageTitle = title === SITE.name ? SITE.title : `${title} - ${SITE.name}`;
+const canonical = Astro.url.href;
+const base = import.meta.env.BASE_URL;
+const withBase = (path: string) => `${base}${path.replace(/^\/+/, "")}`;
+const isMarkdownPage = Boolean(Astro.props.frontmatter);
+const navItems = [
+  { href: withBase("/"), label: "首页" },
+  { href: withBase("/permissions/"), label: "权限说明" },
+  { href: withBase("/changelog/"), label: "更新记录" },
+];
+---
+
+<!doctype html>
+<html lang="zh-Hans">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content={description} />
+    <meta property="og:title" content={pageTitle} />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={new URL(withBase("/rolume-icon.png"), Astro.site)} />
+    <meta name="twitter:card" content="summary" />
+    <link rel="canonical" href={canonical} />
+    <link rel="icon" type="image/png" href={withBase("/favicon.png")} />
+    <title>{pageTitle}</title>
+  </head>
+  <body>
+    <div class="page-shell min-h-screen">
+      <header class="border-b border-[color:var(--line)] bg-white/86 backdrop-blur">
+        <nav class="mx-auto flex max-w-6xl items-center justify-between px-5 py-3">
+          <a href={withBase("/")} class="flex min-w-0 items-center gap-3" aria-label="Rolume home">
+            <img src={withBase("/rolume-icon.png")} alt="" class="h-10 w-10 shrink-0 rounded-[8px]" />
+            <span class="text-base font-semibold tracking-normal text-[color:var(--ink)]">Rolume</span>
+          </a>
+          <div class="flex items-center gap-1 text-sm text-[color:var(--muted)]">
+            {
+              navItems.map((item) => (
+                <a class="rounded-[8px] px-3 py-2 transition hover:bg-[color:var(--surface-muted)] hover:text-[color:var(--ink)]" href={item.href}>
+                  {item.label}
+                </a>
+              ))
+            }
+            <a
+              class="hidden rounded-[8px] px-3 py-2 transition hover:bg-[color:var(--surface-muted)] hover:text-[color:var(--ink)] sm:inline-flex"
+              href={SITE.repositoryUrl}
+              rel="noreferrer"
+              target="_blank"
+            >
+              GitHub
+            </a>
+          </div>
+        </nav>
+      </header>
+
+      <main class:list={[isMarkdownPage && "mx-auto max-w-6xl px-5 py-16"]}>
+        {
+          isMarkdownPage ? (
+            <article class="markdown">
+              <slot />
+            </article>
+          ) : (
+            <slot />
+          )
+        }
+      </main>
+
+      <footer class="border-t border-[color:var(--line)]">
+        <div class="mx-auto flex max-w-6xl flex-col gap-4 px-5 py-8 text-sm text-[color:var(--muted)] sm:flex-row sm:items-center sm:justify-between">
+          <p>Rolume is open source under the MIT License.</p>
+          <div class="flex flex-wrap gap-4">
+            <a class="hover:text-[color:var(--ink)]" href={SITE.repositoryUrl}>GitHub</a>
+            <a class="hover:text-[color:var(--ink)]" href={SITE.issueUrl}>Issues</a>
+            <a class="hover:text-[color:var(--ink)]" href={`mailto:${SITE.email}`}>Email</a>
+          </div>
+        </div>
+      </footer>
+    </div>
+  </body>
+</html>

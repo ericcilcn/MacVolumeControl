@@ -1,0 +1,270 @@
+---
+const base = import.meta.env.BASE_URL;
+const withBase = (path: string) => `${base}${path.replace(/^\/+/, "")}`;
+---
+
+<div class="dynamic-osd-demo" data-dynamic-osd style="--osd-volume: 50%;" aria-label="Rolume OSD volume preview">
+  <div class="dynamic-osd" aria-live="polite">
+    <div class="osd-title">R27U81</div>
+    <div class="osd-row">
+      <img class="osd-speaker osd-speaker-small" src={withBase("/osd-icons/speaker.svg")} alt="" decoding="async" draggable="false" />
+      <div class="osd-track" aria-hidden="true">
+        <span class="osd-fill"></span>
+      </div>
+      <img class="osd-speaker osd-speaker-loud" src={withBase("/osd-icons/speaker-wave-3.svg")} alt="" decoding="async" draggable="false" />
+    </div>
+    <span class="sr-only"><span data-osd-label>50</span>%</span>
+  </div>
+</div>
+
+<script is:inline>
+  (() => {
+    const demos = document.querySelectorAll("[data-dynamic-osd]");
+
+    demos.forEach((root) => {
+      let volume = 50;
+      let visible = false;
+      let raf = 0;
+      let lastStepAt = 0;
+      let lastDirection = 0;
+      let lastWheelAt = 0;
+      let trackpadAccumulator = 0;
+      let lastTrackpadAt = 0;
+      let lastTrackpadStepAt = 0;
+      let lastTrackpadDirection = 0;
+      let modeLockedUntil = 0;
+      let inputMode = "mouse";
+      const label = root.querySelector("[data-osd-label]");
+
+      const observer = new IntersectionObserver(
+        (entries) => {
+          visible = entries.some((entry) => entry.isIntersecting);
+        },
+        { threshold: 0.2 },
+      );
+
+      observer.observe(root);
+
+      const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+
+      const detectInputMode = (event, x, y, now) => {
+        if (now < modeLockedUntil) return inputMode;
+
+        const absX = Math.abs(x);
+        const absY = Math.abs(y);
+        const fractional = Math.abs(x % 1) > 0.05 || Math.abs(y % 1) > 0.05;
+        const highFrequency = lastWheelAt > 0 && now - lastWheelAt < 24;
+        const horizontal = absX > 2;
+        const smallSmoothStep = absY > 0 && absY < 42;
+        const lineOrPageMode = event.deltaMode === 1 || event.deltaMode === 2;
+        const stepped = absY >= 80 || Math.abs(absY % 40) < 0.6 || Math.abs(absY % 120) < 0.6;
+        const score =
+          (fractional ? 2 : 0) +
+          (highFrequency ? 1 : 0) +
+          (horizontal ? 2 : 0) +
+          (smallSmoothStep ? 1 : 0) -
+          (lineOrPageMode ? 3 : 0) -
+          (stepped ? 1 : 0);
+
+        inputMode = score >= 1 ? "trackpad" : "mouse";
+        modeLockedUntil = now + 180;
+        return inputMode;
+      };
+
+      const render = () => {
+        if (raf) return;
+        raf = requestAnimationFrame(() => {
+          raf = 0;
+          const rounded = Math.round(volume);
+          root.style.setProperty("--osd-volume", `${rounded}%`);
+          if (label) label.textContent = String(rounded);
+        });
+      };
+
+      const handleWheel = (event) => {
+        if (!visible) return;
+        const dominantDelta = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX;
+        if (Math.abs(dominantDelta) < 0.01) return;
+
+        const now = performance.now();
+        const mode = detectInputMode(event, event.deltaX, event.deltaY, now);
+        const direction = mode === "trackpad" ? (dominantDelta > 0 ? 1 : -1) : dominantDelta < 0 ? 1 : -1;
+
+        if (mode === "trackpad") {
+          const newTrackpadGesture = direction !== lastTrackpadDirection || now - lastTrackpadAt > 240;
+          if (newTrackpadGesture) {
+            trackpadAccumulator = 0;
+          }
+
+          trackpadAccumulator += Math.min(Math.abs(dominantDelta), 12);
+          lastTrackpadAt = now;
+          lastTrackpadDirection = direction;
+          lastWheelAt = now;
+
+          const trackpadThreshold = newTrackpadGesture || now - lastTrackpadStepAt > 240 ? 22 : 42;
+          if (trackpadAccumulator < trackpadThreshold) return;
+          if (!newTrackpadGesture && now - lastTrackpadStepAt < 120) {
+            trackpadAccumulator = trackpadThreshold;
+            return;
+          }
+
+          trackpadAccumulator = 0;
+          volume = clamp(volume + direction * 5, 0, 100);
+          lastTrackpadStepAt = now;
+          lastStepAt = now;
+          lastDirection = direction;
+          render();
+          return;
+        }
+
+        if (direction === lastDirection && now - lastStepAt < 35) return;
+
+        volume = clamp(volume + direction * 5, 0, 100);
+        lastStepAt = now;
+        lastDirection = direction;
+        lastWheelAt = now;
+        render();
+      };
+
+      window.addEventListener("wheel", handleWheel, { passive: true });
+      render();
+    });
+  })();
+</script>
+
+<style>
+  .dynamic-osd-demo {
+    display: grid;
+    width: min(100%, 620px);
+    justify-self: center;
+    place-items: center;
+    min-height: 190px;
+    padding: 8px 0;
+  }
+
+  .dynamic-osd {
+    width: 100%;
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    border-radius: 44px;
+    background: rgba(142, 142, 142, 0.92);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.22),
+      0 24px 42px rgba(11, 13, 18, 0.18);
+    color: white;
+    padding: 24px 38px 25px;
+    transform: translateY(0) scale(1);
+    transform-origin: center;
+    transition:
+      transform 180ms ease,
+      box-shadow 180ms ease;
+    will-change: transform;
+  }
+
+  .dynamic-osd-demo:hover .dynamic-osd,
+  .dynamic-osd-demo:focus-within .dynamic-osd {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.24),
+      0 32px 52px rgba(11, 13, 18, 0.22);
+    transform: translateY(-6px) scale(1.015);
+  }
+
+  .osd-title {
+    font-size: 1.22rem;
+    font-weight: 760;
+    line-height: 1;
+    letter-spacing: 0;
+  }
+
+  .osd-row {
+    display: grid;
+    grid-template-columns: 36px minmax(180px, 1fr) 58px;
+    gap: 19px;
+    align-items: center;
+    margin-top: 22px;
+  }
+
+  .osd-track {
+    height: 9px;
+    min-width: 180px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.34);
+  }
+
+  .osd-fill {
+    display: block;
+    width: var(--osd-volume, 42%);
+    height: 100%;
+    border-radius: inherit;
+    background: white;
+    transition: width 120ms ease;
+  }
+
+  .osd-speaker {
+    display: block;
+    width: 54px;
+    height: auto;
+    user-select: none;
+  }
+
+  .osd-speaker-small {
+    width: 31px;
+  }
+
+  .osd-speaker-loud {
+    width: 54px;
+  }
+
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+
+  @media (max-width: 640px) {
+    .dynamic-osd-demo {
+      width: min(100%, 430px);
+      min-height: 160px;
+    }
+
+    .dynamic-osd {
+      border-radius: 30px;
+      padding: 20px 22px 23px;
+    }
+
+    .osd-row {
+      grid-template-columns: 31px minmax(118px, 1fr) 46px;
+      gap: 14px;
+    }
+
+    .osd-track {
+      min-width: 118px;
+    }
+
+    .osd-speaker {
+      width: 45px;
+    }
+
+    .osd-speaker-small {
+      width: 28px;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .dynamic-osd {
+      transition: none;
+    }
+
+    .dynamic-osd-demo:hover .dynamic-osd,
+    .dynamic-osd-demo:focus-within .dynamic-osd {
+      transform: none;
+    }
+
+    .osd-fill {
+      transition: none;
+    }
+  }
+</style>

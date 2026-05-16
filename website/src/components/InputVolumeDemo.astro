@@ -1,0 +1,604 @@
+---
+import LayeredRolumeIcon from "./LayeredRolumeIcon.astro";
+
+const maxState = 10;
+const initialState = 5;
+const base = import.meta.env.BASE_URL;
+const withBase = (path: string) => `${base}${path.replace(/^\/+/, "")}`;
+---
+
+<div
+  class="input-demo"
+  data-input-demo
+  data-active="false"
+  data-max-level={maxState}
+  data-initial-level={initialState}
+  style={`--icon-level: ${initialState}; --level-ratio: ${initialState / maxState};`}
+  aria-label="Rolume volume interaction preview"
+>
+  <div class="demo-shell">
+    <div class="demo-menu">
+      <div class="menu-left">
+        <span class="menu-app-glyph" aria-hidden="true">
+          <svg class="menu-app-icon" viewBox="0 0 24 36" aria-hidden="true">
+            <rect class="menu-volume-track" x="6.25" y="2.75" width="11.5" height="30.5" rx="5.75"></rect>
+            <rect class="menu-volume-fill" x="7.95" y="4.45" width="8.1" height="27.1" rx="4.05"></rect>
+            <rect class="menu-volume-cap" x="9.7" y="4.45" width="4.6" height="4.2" rx="2.1"></rect>
+          </svg>
+        </span>
+      </div>
+      <div class="menu-right">
+        <img class="menu-status-icon menu-wifi-icon" src={withBase("/menu-icons/wifi.svg")} alt="" decoding="async" draggable="false" />
+        <img class="menu-status-icon menu-battery-icon" src={withBase("/menu-icons/battery.svg")} alt="" decoding="async" draggable="false" />
+        <img class="menu-status-icon menu-control-icon" src={withBase("/menu-icons/control-center.svg")} alt="" decoding="async" draggable="false" />
+      </div>
+    </div>
+
+    <div class="demo-stage">
+      <div class="demo-cue">
+        <p class="demo-hint-title">
+          <span class="desktop-hint">把光标放进这个窗口</span>
+          <span class="touch-hint">桌面端可以直接试用</span>
+        </p>
+        <p class="demo-hint-copy">
+          <span class="desktop-hint">滚动或双指滑动</span>
+          <span class="touch-hint">手机端保留静态预览</span>
+        </p>
+      </div>
+      <div class="dock-preview" aria-hidden="true">
+        <img class="dock-app-icon dock-app-icon-left" src={withBase("/dock-icons/apple-music.webp")} alt="" decoding="async" draggable="false" />
+        <LayeredRolumeIcon class="demo-icon" state={initialState} />
+        <img class="dock-app-icon dock-app-icon-right" src={withBase("/dock-icons/app-store.png")} alt="" decoding="async" draggable="false" />
+      </div>
+    </div>
+  </div>
+</div>
+
+<script is:inline>
+  (() => {
+    const demos = document.querySelectorAll("[data-input-demo]");
+
+    demos.forEach((root) => {
+      const maxLevel = Math.max(1, Number(root.dataset.maxLevel || 10));
+      let level = Math.min(maxLevel, Math.max(0, Number(root.dataset.initialLevel || maxLevel)));
+      let visible = false;
+      const staticPreview = window.matchMedia("(hover: none) and (pointer: coarse)");
+      let activeTimer = 0;
+      let raf = 0;
+      let lastStepAt = 0;
+      let lastDirection = 0;
+      let lastWheelAt = 0;
+      let trackpadAccumulator = 0;
+      let lastTrackpadAt = 0;
+      let lastTrackpadStepAt = 0;
+      let lastTrackpadDirection = 0;
+      let modeLockedUntil = 0;
+      let inputMode = "mouse";
+
+      const observer = new IntersectionObserver(
+        (entries) => {
+          visible = entries.some((entry) => entry.isIntersecting);
+        },
+        { threshold: 0.2 },
+      );
+
+      observer.observe(root);
+
+      const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+
+      const detectInputMode = (event, x, y, now) => {
+        if (now < modeLockedUntil) return inputMode;
+
+        const absX = Math.abs(x);
+        const absY = Math.abs(y);
+        const fractional = Math.abs(x % 1) > 0.05 || Math.abs(y % 1) > 0.05;
+        const highFrequency = lastWheelAt > 0 && now - lastWheelAt < 24;
+        const horizontal = absX > 2;
+        const smallSmoothStep = absY > 0 && absY < 42;
+        const lineOrPageMode = event.deltaMode === 1 || event.deltaMode === 2;
+        const stepped = absY >= 80 || Math.abs(absY % 40) < 0.6 || Math.abs(absY % 120) < 0.6;
+        const score =
+          (fractional ? 2 : 0) +
+          (highFrequency ? 1 : 0) +
+          (horizontal ? 2 : 0) +
+          (smallSmoothStep ? 1 : 0) -
+          (lineOrPageMode ? 3 : 0) -
+          (stepped ? 1 : 0);
+
+        inputMode = score >= 1 ? "trackpad" : "mouse";
+        modeLockedUntil = now + 180;
+        return inputMode;
+      };
+
+      const render = () => {
+        if (raf) return;
+        raf = requestAnimationFrame(() => {
+          raf = 0;
+          root.style.setProperty("--icon-level", String(level));
+          root.style.setProperty("--level-ratio", String(maxLevel === 0 ? 1 : level / maxLevel));
+        });
+      };
+
+      const showActive = () => {
+        root.dataset.active = "true";
+        window.clearTimeout(activeTimer);
+        activeTimer = window.setTimeout(() => {
+          root.dataset.active = "false";
+        }, 420);
+      };
+
+      const handleWheel = (event) => {
+        if (!visible) return;
+        if (staticPreview.matches) return;
+        event.preventDefault();
+
+        const dominantDelta = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX;
+        if (Math.abs(dominantDelta) < 0.01) return;
+
+        const now = performance.now();
+        const mode = detectInputMode(event, event.deltaX, event.deltaY, now);
+        const direction = mode === "trackpad" ? (dominantDelta > 0 ? 1 : -1) : dominantDelta < 0 ? 1 : -1;
+
+        if (mode === "trackpad") {
+          const newTrackpadGesture = direction !== lastTrackpadDirection || now - lastTrackpadAt > 240;
+          if (newTrackpadGesture) {
+            trackpadAccumulator = 0;
+          }
+
+          trackpadAccumulator += Math.min(Math.abs(dominantDelta), 12);
+          lastTrackpadAt = now;
+          lastTrackpadDirection = direction;
+          lastWheelAt = now;
+
+          const trackpadThreshold = newTrackpadGesture || now - lastTrackpadStepAt > 240 ? 22 : 42;
+          if (trackpadAccumulator < trackpadThreshold) return;
+          if (!newTrackpadGesture && now - lastTrackpadStepAt < 120) {
+            trackpadAccumulator = trackpadThreshold;
+            return;
+          }
+
+          trackpadAccumulator = 0;
+          level = clamp(level + direction, 0, maxLevel);
+          lastTrackpadStepAt = now;
+          lastStepAt = now;
+          lastDirection = direction;
+          showActive();
+          render();
+          return;
+        }
+
+        if (direction === lastDirection && now - lastStepAt < 35) return;
+
+        level = clamp(level + direction, 0, maxLevel);
+        lastStepAt = now;
+        lastDirection = direction;
+        lastWheelAt = now;
+        showActive();
+        render();
+      };
+
+      root.addEventListener("wheel", handleWheel, { passive: false });
+      render();
+    });
+  })();
+</script>
+
+<style>
+  .input-demo {
+    width: clamp(300px, 29vw, 390px);
+    max-width: 100%;
+    color: #f7f8fb;
+  }
+
+  .demo-shell {
+    position: relative;
+    display: grid;
+    grid-template-rows: 62px 1fr;
+    aspect-ratio: 1;
+    overflow: hidden;
+    border: 1px solid rgba(207, 216, 228, 0.94);
+    border-radius: 22px;
+    background: #f5f8fc;
+    box-shadow:
+      0 30px 74px rgba(18, 20, 23, 0.17),
+      0 10px 24px rgba(18, 20, 23, 0.11),
+      inset 0 1px 0 rgba(255, 255, 255, 0.68);
+    transform: translateY(0) scale(1);
+    transform-origin: center;
+    transition:
+      transform 180ms ease,
+      box-shadow 180ms ease;
+    will-change: transform;
+  }
+
+  .input-demo:hover .demo-shell,
+  .input-demo:focus-within .demo-shell {
+    box-shadow:
+      0 38px 92px rgba(18, 20, 23, 0.21),
+      0 15px 34px rgba(18, 20, 23, 0.13),
+      inset 0 1px 0 rgba(255, 255, 255, 0.78);
+    transform: translateY(-6px) scale(1.015);
+  }
+
+  .demo-menu {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    min-height: 62px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    background:
+      radial-gradient(circle at 82% -18%, rgba(80, 92, 101, 0.28), transparent 42%),
+      radial-gradient(circle at 8% 0%, rgba(30, 63, 62, 0.25), transparent 45%),
+      linear-gradient(180deg, #09111a 0%, #17202a 66%, #101820 100%);
+    padding: 0 22px;
+  }
+
+  .demo-menu::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.025), transparent),
+      radial-gradient(circle at 74% 48%, rgba(255, 255, 255, 0.08) 0 1px, transparent 1.5px);
+    background-size: 100% 100%, 42px 34px;
+    opacity: 0.45;
+    pointer-events: none;
+  }
+
+  .menu-left,
+  .menu-right {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    min-width: 0;
+  }
+
+  .menu-right {
+    gap: 15px;
+    color: rgba(255, 255, 255, 0.94);
+    white-space: nowrap;
+  }
+
+  .menu-app-glyph {
+    position: relative;
+    display: grid;
+    width: 24px;
+    height: 36px;
+    place-items: center;
+  }
+
+  .menu-app-icon {
+    display: block;
+    width: 24px;
+    height: 36px;
+    fill: none;
+    overflow: visible;
+  }
+
+  .menu-volume-track {
+    stroke: rgba(255, 255, 255, 0.92);
+    stroke-width: 2;
+  }
+
+  .menu-volume-fill {
+    fill: rgba(255, 255, 255, 0.95);
+    transform: scaleY(var(--level-ratio));
+    transform-box: fill-box;
+    transform-origin: center bottom;
+  }
+
+  .menu-volume-cap {
+    fill: rgba(255, 255, 255, 0.95);
+    opacity: clamp(0, calc(var(--icon-level) - 9), 1);
+  }
+
+  .menu-status-icon {
+    display: block;
+    height: auto;
+    object-fit: contain;
+    user-select: none;
+  }
+
+  .menu-wifi-icon {
+    width: 27px;
+  }
+
+  .menu-battery-icon {
+    width: 34px;
+  }
+
+  .menu-control-icon {
+    width: 27px;
+  }
+
+  .demo-stage {
+    position: relative;
+    display: grid;
+    grid-template-rows: minmax(106px, 0.78fr) minmax(156px, 1fr);
+    overflow: hidden;
+    min-height: 0;
+    padding: 0;
+    background:
+      radial-gradient(circle at 22% 12%, rgba(255, 255, 255, 0.92), transparent 28%),
+      radial-gradient(circle at 86% 18%, rgba(147, 197, 253, 0.36), transparent 34%),
+      radial-gradient(circle at 78% 88%, rgba(244, 114, 182, 0.16), transparent 36%),
+      linear-gradient(145deg, rgba(241, 247, 253, 0.96), rgba(229, 237, 248, 0.92));
+    isolation: isolate;
+  }
+
+  .demo-stage::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    background:
+      linear-gradient(115deg, rgba(255, 255, 255, 0.56), transparent 34%),
+      linear-gradient(180deg, transparent 0%, rgba(18, 20, 23, 0.045) 100%);
+    pointer-events: none;
+  }
+
+  .demo-cue,
+  .dock-preview {
+    position: relative;
+    z-index: 1;
+  }
+
+  .demo-cue {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.58);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0.08)),
+      rgba(255, 255, 255, 0.16);
+    box-shadow:
+      inset 0 -1px 0 rgba(92, 106, 125, 0.08),
+      inset 1px 0 0 rgba(255, 255, 255, 0.34);
+    padding: 18px 20px 16px;
+    -webkit-backdrop-filter: blur(20px) saturate(1.22);
+    backdrop-filter: blur(20px) saturate(1.22);
+  }
+
+  .demo-hint-title,
+  .demo-hint-copy {
+    margin: 0;
+    text-align: center;
+  }
+
+  .demo-hint-title {
+    color: #1d4ed8;
+    font-size: 1.04rem;
+    font-weight: 900;
+    line-height: 1.2;
+  }
+
+  .demo-hint-copy {
+    display: flex;
+    margin-top: 9px;
+    max-width: none;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    color: rgba(36, 49, 70, 0.72);
+    font-size: 0.78rem;
+    font-weight: 700;
+    line-height: 1.45;
+  }
+
+  .demo-hint-copy span {
+    display: block;
+  }
+
+  .touch-hint {
+    display: none;
+  }
+
+  .dock-preview {
+    display: grid;
+    min-width: 0;
+    place-items: center;
+    overflow: hidden;
+    padding: 18px 0 26px;
+    border: 1px solid rgba(255, 255, 255, 0.38);
+    border-width: 1px 0 0;
+    background:
+      radial-gradient(circle at 50% 4%, rgba(255, 255, 255, 0.38), transparent 36%),
+      linear-gradient(135deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.06)),
+      rgba(180, 197, 221, 0.16);
+    box-shadow:
+      0 22px 48px rgba(20, 31, 46, 0.12),
+      inset 0 1px 0 rgba(255, 255, 255, 0.5),
+      inset 0 -1px 0 rgba(68, 83, 102, 0.07);
+    -webkit-backdrop-filter: blur(28px) saturate(1.55);
+    backdrop-filter: blur(28px) saturate(1.55);
+    transition:
+      box-shadow 180ms ease,
+      transform 180ms ease,
+      background 180ms ease;
+  }
+
+  .dock-preview::before {
+    content: "";
+    position: absolute;
+    top: 10px;
+    right: 42px;
+    left: 42px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.66), transparent);
+    opacity: 0.58;
+    pointer-events: none;
+  }
+
+  .input-demo:hover .dock-preview,
+  .input-demo:focus-within .dock-preview,
+  .input-demo[data-active="true"] .dock-preview {
+    background:
+      radial-gradient(circle at 50% 4%, rgba(255, 255, 255, 0.46), transparent 36%),
+      linear-gradient(135deg, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0.08)),
+      rgba(184, 202, 228, 0.2);
+    box-shadow:
+      0 28px 58px rgba(20, 31, 46, 0.17),
+      inset 0 1px 0 rgba(255, 255, 255, 0.58),
+      inset 0 -1px 0 rgba(68, 83, 102, 0.08);
+  }
+
+  .dock-app-icon {
+    position: absolute;
+    top: 50%;
+    z-index: 1;
+    width: clamp(78px, 22vw, 96px);
+    aspect-ratio: 1;
+    object-fit: contain;
+    user-select: none;
+    filter: drop-shadow(0 12px 18px rgba(18, 20, 23, 0.16));
+    transform: translateY(-50%);
+    transition:
+      transform 180ms ease,
+      opacity 180ms ease;
+  }
+
+  .dock-app-icon-left {
+    left: calc(clamp(78px, 22vw, 96px) * -0.34);
+  }
+
+  .dock-app-icon-right {
+    right: calc(clamp(78px, 22vw, 96px) * -0.34);
+  }
+
+  .dock-preview :global(.demo-icon) {
+    --icon-size: clamp(108px, 30vw, 132px);
+    position: relative;
+    z-index: 2;
+    transform: translateY(0) scale(1);
+    transition: transform 180ms ease;
+  }
+
+  .input-demo[data-active="true"] .dock-preview :global(.demo-icon) {
+    transform: translateY(-2px) scale(1.012);
+  }
+
+  .input-demo:hover .dock-preview :global(.demo-icon),
+  .input-demo:focus-within .dock-preview :global(.demo-icon) {
+    transform: translateY(-3px) scale(1.018);
+    filter: drop-shadow(0 18px 30px rgba(18, 20, 23, 0.16));
+  }
+
+  .input-demo:hover .dock-app-icon-left,
+  .input-demo:focus-within .dock-app-icon-left,
+  .input-demo[data-active="true"] .dock-app-icon-left {
+    transform: translateY(calc(-50% - 2px)) scale(1.02);
+  }
+
+  .input-demo:hover .dock-app-icon-right,
+  .input-demo:focus-within .dock-app-icon-right,
+  .input-demo[data-active="true"] .dock-app-icon-right {
+    transform: translateY(calc(-50% - 2px)) scale(1.02);
+  }
+
+  @media (max-width: 980px) {
+    .input-demo {
+      width: 100%;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .demo-shell {
+      border-radius: 16px;
+    }
+
+    .demo-menu {
+      min-height: 58px;
+      padding: 0 18px;
+    }
+
+    .menu-right {
+      gap: 12px;
+    }
+
+    .menu-app-glyph {
+      width: 22px;
+      height: 34px;
+    }
+
+    .menu-wifi-icon {
+      width: 24px;
+    }
+
+    .menu-battery-icon {
+      width: 31px;
+    }
+
+    .menu-control-icon {
+      width: 24px;
+    }
+
+    .demo-stage {
+      grid-template-rows: minmax(96px, 0.75fr) minmax(148px, 1fr);
+    }
+
+    .demo-cue {
+      padding: 16px 14px 14px;
+    }
+
+    .demo-hint-title {
+      font-size: 0.94rem;
+    }
+
+    .demo-hint-copy {
+      font-size: 0.7rem;
+    }
+
+    .dock-preview {
+      gap: 8px;
+      padding: 16px 0 24px;
+    }
+
+    .dock-app-icon {
+      width: clamp(64px, 20vw, 78px);
+    }
+
+    .dock-app-icon-left {
+      left: calc(clamp(64px, 20vw, 78px) * -0.36);
+    }
+
+    .dock-app-icon-right {
+      right: calc(clamp(64px, 20vw, 78px) * -0.36);
+    }
+
+    .dock-preview :global(.demo-icon) {
+      --icon-size: clamp(86px, 28vw, 104px);
+    }
+  }
+
+  @media (hover: none) and (pointer: coarse) {
+    .desktop-hint {
+      display: none;
+    }
+
+    .touch-hint {
+      display: block;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .demo-shell {
+      transition: none;
+    }
+
+    .input-demo:hover .demo-shell,
+    .input-demo:focus-within .demo-shell {
+      transform: none;
+    }
+
+    .dock-preview,
+    .dock-app-icon,
+    .dock-preview :global(.demo-icon) {
+      transition: none;
+    }
+  }
+</style>
