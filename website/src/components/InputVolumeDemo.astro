@@ -1,6 +1,23 @@
 ---
 import LayeredRolumeIcon from "./LayeredRolumeIcon.astro";
 
+interface Props {
+  desktopTitle?: string;
+  desktopCopy?: string;
+  touchTitle?: string;
+  touchCopy?: string;
+  touchActiveTitle?: string;
+  touchActiveCopy?: string;
+}
+
+const {
+  desktopTitle = "把光标放进这个窗口",
+  desktopCopy = "滚动或双指滑动",
+  touchTitle = "轻点这个窗口",
+  touchCopy = "然后上下滑动试用",
+  touchActiveTitle = "上下滑动调节音量",
+  touchActiveCopy = "点到窗口外即可继续滚动页面",
+} = Astro.props;
 const maxState = 10;
 const initialState = 5;
 const base = import.meta.env.BASE_URL;
@@ -11,6 +28,7 @@ const withBase = (path: string) => `${base}${path.replace(/^\/+/, "")}`;
   class="input-demo"
   data-input-demo
   data-active="false"
+  data-touch-active="false"
   data-max-level={maxState}
   data-initial-level={initialState}
   style={`--icon-level: ${initialState}; --level-ratio: ${initialState / maxState};`}
@@ -37,12 +55,14 @@ const withBase = (path: string) => `${base}${path.replace(/^\/+/, "")}`;
     <div class="demo-stage">
       <div class="demo-cue">
         <p class="demo-hint-title">
-          <span class="desktop-hint">把光标放进这个窗口</span>
-          <span class="touch-hint">桌面端可以直接试用</span>
+          <span class="desktop-hint">{desktopTitle}</span>
+          <span class="touch-hint touch-hint-idle">{touchTitle}</span>
+          <span class="touch-hint touch-hint-active">{touchActiveTitle}</span>
         </p>
         <p class="demo-hint-copy">
-          <span class="desktop-hint">滚动或双指滑动</span>
-          <span class="touch-hint">手机端保留静态预览</span>
+          <span class="desktop-hint">{desktopCopy}</span>
+          <span class="touch-hint touch-hint-idle">{touchCopy}</span>
+          <span class="touch-hint touch-hint-active">{touchActiveCopy}</span>
         </p>
       </div>
       <div class="dock-preview" aria-hidden="true">
@@ -64,6 +84,13 @@ const withBase = (path: string) => `${base}${path.replace(/^\/+/, "")}`;
       let visible = false;
       const staticPreview = window.matchMedia("(hover: none) and (pointer: coarse)");
       let activeTimer = 0;
+      let touchTimer = 0;
+      let touchArmed = false;
+      let touchMoved = false;
+      let touchStartY = 0;
+      let touchLastY = 0;
+      let touchAccumulator = 0;
+      let touchDirection = 0;
       let raf = 0;
       let lastStepAt = 0;
       let lastDirection = 0;
@@ -127,6 +154,34 @@ const withBase = (path: string) => `${base}${path.replace(/^\/+/, "")}`;
         }, 420);
       };
 
+      const setTouchArmed = (armed) => {
+        touchArmed = armed;
+        root.dataset.touchActive = armed ? "true" : "false";
+        window.clearTimeout(touchTimer);
+        if (armed) {
+          showActive();
+          touchTimer = window.setTimeout(() => setTouchArmed(false), 3200);
+        }
+      };
+
+      const applyTouchDelta = (deltaY) => {
+        const direction = deltaY > 0 ? 1 : -1;
+        if (direction !== touchDirection) {
+          touchAccumulator = 0;
+          touchDirection = direction;
+        }
+
+        touchAccumulator += Math.min(Math.abs(deltaY), 18);
+        const threshold = 24;
+        if (touchAccumulator < threshold) return;
+
+        const steps = Math.floor(touchAccumulator / threshold);
+        touchAccumulator %= threshold;
+        level = clamp(level + direction * steps, 0, maxLevel);
+        showActive();
+        render();
+      };
+
       const handleWheel = (event) => {
         if (!visible) return;
         if (staticPreview.matches) return;
@@ -178,6 +233,60 @@ const withBase = (path: string) => `${base}${path.replace(/^\/+/, "")}`;
       };
 
       root.addEventListener("wheel", handleWheel, { passive: false });
+
+      root.addEventListener(
+        "touchstart",
+        (event) => {
+          if (!staticPreview.matches || event.touches.length !== 1) return;
+          touchMoved = false;
+          touchAccumulator = 0;
+          touchStartY = event.touches[0].clientY;
+          touchLastY = touchStartY;
+        },
+        { passive: true },
+      );
+
+      root.addEventListener(
+        "touchmove",
+        (event) => {
+          if (!staticPreview.matches || !touchArmed || event.touches.length !== 1) return;
+          event.preventDefault();
+          const currentY = event.touches[0].clientY;
+          const movementFromStart = Math.abs(currentY - touchStartY);
+          const deltaY = touchLastY - currentY;
+          touchLastY = currentY;
+          touchMoved = touchMoved || movementFromStart > 8;
+          if (Math.abs(deltaY) < 1) return;
+          applyTouchDelta(deltaY);
+          window.clearTimeout(touchTimer);
+          touchTimer = window.setTimeout(() => setTouchArmed(false), 3200);
+        },
+        { passive: false },
+      );
+
+      root.addEventListener(
+        "touchend",
+        (event) => {
+          if (!staticPreview.matches) return;
+          if (!touchArmed && !touchMoved && event.changedTouches.length === 1) {
+            const endY = event.changedTouches[0].clientY;
+            if (Math.abs(endY - touchStartY) < 8) {
+              setTouchArmed(true);
+            }
+          }
+        },
+        { passive: true },
+      );
+
+      document.addEventListener(
+        "touchstart",
+        (event) => {
+          if (!staticPreview.matches || root.contains(event.target)) return;
+          setTouchArmed(false);
+        },
+        { passive: true },
+      );
+
       render();
     });
   })();
@@ -398,6 +507,10 @@ const withBase = (path: string) => `${base}${path.replace(/^\/+/, "")}`;
     display: none;
   }
 
+  .touch-hint-active {
+    display: none;
+  }
+
   .dock-preview {
     display: grid;
     min-width: 0;
@@ -436,6 +549,7 @@ const withBase = (path: string) => `${base}${path.replace(/^\/+/, "")}`;
 
   .input-demo:hover .dock-preview,
   .input-demo:focus-within .dock-preview,
+  .input-demo[data-touch-active="true"] .dock-preview,
   .input-demo[data-active="true"] .dock-preview {
     background:
       radial-gradient(circle at 50% 4%, rgba(255, 255, 255, 0.46), transparent 36%),
@@ -483,7 +597,8 @@ const withBase = (path: string) => `${base}${path.replace(/^\/+/, "")}`;
   }
 
   .input-demo:hover .dock-preview :global(.demo-icon),
-  .input-demo:focus-within .dock-preview :global(.demo-icon) {
+  .input-demo:focus-within .dock-preview :global(.demo-icon),
+  .input-demo[data-touch-active="true"] .dock-preview :global(.demo-icon) {
     transform: translateY(-3px) scale(1.018);
     filter: drop-shadow(0 18px 30px rgba(18, 20, 23, 0.16));
   }
@@ -580,7 +695,15 @@ const withBase = (path: string) => `${base}${path.replace(/^\/+/, "")}`;
       display: none;
     }
 
-    .touch-hint {
+    .touch-hint-idle {
+      display: block;
+    }
+
+    .input-demo[data-touch-active="true"] .touch-hint-idle {
+      display: none;
+    }
+
+    .input-demo[data-touch-active="true"] .touch-hint-active {
       display: block;
     }
   }

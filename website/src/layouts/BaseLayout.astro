@@ -5,29 +5,39 @@ import { SITE } from "../data/site";
 interface Props {
   title?: string;
   description?: string;
+  lang?: "zh-Hans" | "en";
   frontmatter?: {
     title?: string;
     description?: string;
+    lang?: "zh-Hans" | "en";
   };
 }
 
 const frontmatter = Astro.props.frontmatter ?? {};
 const title = Astro.props.title ?? frontmatter.title ?? SITE.name;
 const description = Astro.props.description ?? frontmatter.description ?? SITE.description;
-const pageTitle = title === SITE.name ? SITE.title : `${title} - ${SITE.name}`;
+const pageTitle = title === SITE.name || title.startsWith(SITE.name) ? title : `${title} - ${SITE.name}`;
 const canonical = Astro.url.href;
 const base = import.meta.env.BASE_URL;
 const withBase = (path: string) => `${base}${path.replace(/^\/+/, "")}`;
 const isMarkdownPage = Boolean(Astro.props.frontmatter);
+const lang = Astro.props.lang ?? frontmatter.lang ?? "zh-Hans";
+const isEnglish = lang === "en";
+const homeHref = withBase(isEnglish ? "/en/" : "/");
 const navItems = [
-  { href: withBase("/"), label: "首页" },
-  { href: withBase("/permissions/"), label: "权限说明" },
-  { href: withBase("/changelog/"), label: "更新记录" },
+  { href: homeHref, label: isEnglish ? "Home" : "首页" },
+  { href: withBase(isEnglish ? "/en/permissions/" : "/permissions/"), label: isEnglish ? "Permissions" : "权限说明" },
+  { href: withBase(isEnglish ? "/en/changelog/" : "/changelog/"), label: isEnglish ? "Changelog" : "更新记录" },
 ];
+const languageSwitch = {
+  href: withBase(isEnglish ? "/" : "/en/"),
+  label: isEnglish ? "中文" : "EN",
+  ariaLabel: isEnglish ? "Switch to Chinese" : "切换到英文",
+};
 ---
 
 <!doctype html>
-<html lang="zh-Hans">
+<html lang={lang}>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -46,14 +56,14 @@ const navItems = [
     <div class="page-shell min-h-screen">
       <header class="border-b border-[color:var(--line)] bg-white/86 backdrop-blur">
         <nav class="mx-auto flex max-w-6xl items-center justify-between px-5 py-3">
-          <a href={withBase("/")} class="flex min-w-0 items-center gap-3" aria-label="Rolume home">
+          <a href={homeHref} class="flex min-w-0 items-center gap-3" aria-label="Rolume home">
             <img src={withBase("/rolume-icon.png")} alt="" class="h-10 w-10 shrink-0 rounded-[8px]" />
             <span class="text-base font-semibold tracking-normal text-[color:var(--ink)]">Rolume</span>
           </a>
           <div class="flex items-center gap-1 text-sm text-[color:var(--muted)]">
             {
-              navItems.map((item) => (
-                <a class="rounded-[8px] px-3 py-2 transition hover:bg-[color:var(--surface-muted)] hover:text-[color:var(--ink)]" href={item.href}>
+              navItems.map((item, index) => (
+                <a class:list={["rounded-[8px] px-3 py-2 transition hover:bg-[color:var(--surface-muted)] hover:text-[color:var(--ink)]", index > 0 && "hidden sm:inline-flex"]} href={item.href}>
                   {item.label}
                 </a>
               ))
@@ -65,6 +75,13 @@ const navItems = [
               target="_blank"
             >
               GitHub
+            </a>
+            <a
+              class="rounded-[8px] border border-[color:var(--line)] bg-white px-3 py-2 font-semibold text-[color:var(--ink)] transition hover:bg-[color:var(--surface-muted)]"
+              href={languageSwitch.href}
+              aria-label={languageSwitch.ariaLabel}
+            >
+              {languageSwitch.label}
             </a>
           </div>
         </nav>
